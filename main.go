@@ -32,10 +32,18 @@ func main() {
 	)
 
 	flag.BoolVar(&showAll, "all", false, "show all files including hidden")
-	flag.StringVar(&pattern, "pattern", "", "pattern to filter files")
+	flag.StringVar(&pattern, "pattern", "", "pattern to filter files (comma-separated)")
 	flag.StringVar(&langStr, "lang", "en", "language for UI (en or ja)")
-	flag.StringVar(&mode, "mode", "full", "output mode (tree or full)")
+	flag.StringVar(&mode, "mode", "tree", "output mode (tree or full)")
 	flag.Parse()
+
+	// patternが未指定なら"*"にする
+	if pattern == "" {
+		pattern = "*"
+	}
+
+	// patternを","で分割することで複数パターン対応
+	patterns := strings.Split(pattern, ",")
 
 	args := flag.Args()
 	if len(args) < 1 {
@@ -50,7 +58,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	rootNode, codeFilesPaths, err := buildTree(absRoot, showAll, pattern, mode)
+	rootNode, codeFilesPaths, err := buildTree(absRoot, showAll, patterns, mode)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -62,7 +70,14 @@ func main() {
 		ext := filepath.Ext(file)
 		cfg, ok := extConfig[ext]
 		if !ok {
-			continue
+			// 未対応拡張子は言語指定なし
+			cfg = struct {
+				Lang          string
+				CommentPrefix string
+			}{
+				Lang:          "",
+				CommentPrefix: "",
+			}
 		}
 		content, err := os.ReadFile(file)
 		if err != nil {
@@ -86,39 +101,57 @@ func main() {
 
 	switch mode {
 	case "tree":
-		// treeモード: ファイル構成（ファイルも表示）, コードスニペットはなし
 		fmt.Println(getMessage("heading_file_structure", langStr))
 		fmt.Print(printMarkdownTree(rootNode, 0))
 	case "full":
-		// fullモード: ファイル構成 + コードスニペット表示
 		fmt.Println(getMessage("heading_file_structure", langStr))
 		fmt.Print(printMarkdownTree(rootNode, 0))
 		for _, cf := range codeFiles {
-			fmt.Printf("\n### %s\n```%s\n%s %s\n%s\n```\n",
-				cf.FilePath,
-				cf.Lang,
-				cf.CommentPrefix,
-				cf.FilePath,
-				cf.Content,
-			)
+			if cf.Lang == "" {
+				// 言語未指定の場合は ``` のみで囲む
+				fmt.Printf("\n### %s\n```\n%s %s\n%s\n```\n",
+					cf.FilePath,
+					cf.CommentPrefix,
+					cf.FilePath,
+					cf.Content,
+				)
+			} else {
+				// 対応言語の場合
+				fmt.Printf("\n### %s\n```%s\n%s %s\n%s\n```\n",
+					cf.FilePath,
+					cf.Lang,
+					cf.CommentPrefix,
+					cf.FilePath,
+					cf.Content,
+				)
+			}
 		}
 	default:
 		// 不明なモードはfull扱い
 		fmt.Println(getMessage("heading_file_structure", langStr))
 		fmt.Print(printMarkdownTree(rootNode, 0))
 		for _, cf := range codeFiles {
-			fmt.Printf("\n### %s\n```%s\n%s %s\n%s\n```\n",
-				cf.FilePath,
-				cf.Lang,
-				cf.CommentPrefix,
-				cf.FilePath,
-				cf.Content,
-			)
+			if cf.Lang == "" {
+				fmt.Printf("\n### %s\n```\n%s %s\n%s\n```\n",
+					cf.FilePath,
+					cf.CommentPrefix,
+					cf.FilePath,
+					cf.Content,
+				)
+			} else {
+				fmt.Printf("\n### %s\n```%s\n%s %s\n%s\n```\n",
+					cf.FilePath,
+					cf.Lang,
+					cf.CommentPrefix,
+					cf.FilePath,
+					cf.Content,
+				)
+			}
 		}
 	}
 }
 
-func buildTree(root string, showAll bool, pattern string, mode string) (*Node, []string, error) {
+func buildTree(root string, showAll bool, patterns []string, mode string) (*Node, []string, error) {
 	rootNode := &Node{Name: ".", IsDir: true}
 	var codeFiles []string
 
@@ -127,40 +160,22 @@ func buildTree(root string, showAll bool, pattern string, mode string) (*Node, [
 	}
 
 	shouldDisplayFile := func(name string) bool {
-		if pattern != "" {
-			matched, _ := filepath.Match(pattern, name)
-			return matched
-		}
-		if showAll {
-			return true
-		}
-		// デフォルトはfullモードでファイルを表示するように変更
-		// （これで mode 未指定またはfull時にはファイル表示）
-		if mode == "full" {
-			return true
-		}
-		// treeモードの場合もファイル表示する仕様に変更
-		if mode == "tree" {
-			// 隠しファイルは--allがない限り表示しない
-			if strings.HasPrefix(name, ".") && !showAll {
-				return false
+		// 複数パターンのいずれかにマッチで表示
+		for _, p := range patterns {
+			p = strings.TrimSpace(p)
+			matched, _ := filepath.Match(p, name)
+			if matched {
+				if !showAll && strings.HasPrefix(name, ".") {
+					return false
+				}
+				return true
 			}
-			return true
 		}
 		return false
 	}
 
 	shouldDisplayDir := func(name string) bool {
-		if pattern != "" {
-			if strings.HasPrefix(name, ".") && !showAll {
-				return false
-			}
-			return true
-		}
-		if showAll {
-			return true
-		}
-		if strings.HasPrefix(name, ".") && name != "." {
+		if !showAll && strings.HasPrefix(name, ".") && name != "." {
 			return false
 		}
 		return true
@@ -193,9 +208,7 @@ func buildTree(root string, showAll bool, pattern string, mode string) (*Node, [
 			if shouldDisplayFile(d.Name()) {
 				node := &Node{Name: d.Name(), IsDir: false}
 				parentNode.Children = append(parentNode.Children, node)
-			}
-			ext := filepath.Ext(d.Name())
-			if ext == ".py" || ext == ".go" {
+				// patternにマッチしたファイルを全てcodeFiles対象にする
 				codeFiles = append(codeFiles, path)
 			}
 		}

@@ -7,7 +7,7 @@
 - **File Structure in Markdown:**
   Display directories and files as a Markdown tree.
 - **Code Blocks for Supported Files:**
-  `.py` and `.go` files are automatically included as code blocks for easy viewing.
+  files are automatically included as code blocks for easy viewing.
 - **Modes:**
   - **full** (default): Show all files and directories as a tree, and display code blocks.
   - **tree**: Show all files and directories as a tree only (no code blocks).
@@ -15,6 +15,16 @@
   Use `--lang=en` or `--lang=ja` to switch UI text. By default, `en` is used.
 
 ## Installation
+
+## Installation via `go install`
+
+You can also install `context-cli` directly using `go install`:
+
+```bash
+go install github.com/zawakin/context-cli@latest
+```
+
+## Manual Installation
 
 1. Ensure you have Go installed.
 2. Clone the repository and build:
@@ -48,11 +58,10 @@ sample/
   hello.py
 ```
 
-When you run `context-cli ./sample`, the default mode (`full`) will produce something like:
+When you run `./context-cli ./sample`, the mode (`full`) will produce something like:
 
-
-````
-```
+``````markdown
+$ context-cli --mode=full ./sample
 ## File Structure
 - .
   - foo
@@ -80,23 +89,23 @@ print("foo/bar")
 # hello.py
 print("hello")
 ```
-````
+``````
 
-In `tree` mode, you would only see the Markdown tree (no code blocks):
+In the default `tree` mode, you would only see the Markdown tree (no code blocks):
 
-````
+``````markdown
+$ context-cli ./sample
 ## File Structure
 - .
   - foo
     - bar.go
     - bar.py
   - hello.py
-````
+``````
 
-If you run `context-cli --pattern="*.py" ./sample`, only `.py` files will appear in the tree (plus their code blocks if in `full` mode):
+If you run `./context-cli --pattern="*.py" ./sample`, only `.py` files will appear in the tree (plus their code blocks if in `full` mode):
 
-````
-
+``````markdown
 ## File Structure
 - .
   - foo
@@ -114,7 +123,7 @@ print("foo/bar")
 # hello.py
 print("hello")
 ```
-````
+``````
 
 These examples help you visualize how `context-cli` formats the directory structure and code files, allowing you to quickly get an overview of a project.
 
