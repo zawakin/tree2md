@@ -1,4 +1,4 @@
-# Context CLI: Tree Command with Code Blocks
+# Context CLI: LLM-Friendly Tree Command with Code Blocks
 
 `context-cli` is a command-line tool that scans a given directory and outputs its structure in Markdown format, including both files and directories. It can also display code files (e.g. `.py`, `.go`) as Markdown code blocks, making it easier to review project files at a glance.
 
@@ -12,7 +12,7 @@
   - **full** (default): Show all files and directories as a tree, and display code blocks.
   - **tree**: Show all files and directories as a tree only (no code blocks).
 - **Language Support:**
-  Use `--lang=en` or `--lang=ja` to switch UI text. By default, `ja` is used.
+  Use `--lang=en` or `--lang=ja` to switch UI text. By default, `en` is used.
 
 ## Installation
 
@@ -50,6 +50,8 @@ sample/
 
 When you run `context-cli ./sample`, the default mode (`full`) will produce something like:
 
+
+````
 ```
 ## File Structure
 - .
@@ -78,22 +80,23 @@ print("foo/bar")
 # hello.py
 print("hello")
 ```
-```
+````
 
 In `tree` mode, you would only see the Markdown tree (no code blocks):
 
-```
+````
 ## File Structure
 - .
   - foo
     - bar.go
     - bar.py
   - hello.py
-```
+````
 
 If you run `context-cli --pattern="*.py" ./sample`, only `.py` files will appear in the tree (plus their code blocks if in `full` mode):
 
-```
+````
+
 ## File Structure
 - .
   - foo
@@ -111,7 +114,7 @@ print("foo/bar")
 # hello.py
 print("hello")
 ```
-```
+````
 
 These examples help you visualize how `context-cli` formats the directory structure and code files, allowing you to quickly get an overview of a project.
 

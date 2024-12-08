@@ -33,7 +33,7 @@ func main() {
 
 	flag.BoolVar(&showAll, "all", false, "show all files including hidden")
 	flag.StringVar(&pattern, "pattern", "", "pattern to filter files")
-	flag.StringVar(&langStr, "lang", "ja", "language for UI (en or ja)")
+	flag.StringVar(&langStr, "lang", "en", "language for UI (en or ja)")
 	flag.StringVar(&mode, "mode", "full", "output mode (tree or full)")
 	flag.Parse()
 
