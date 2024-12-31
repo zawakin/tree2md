@@ -3,11 +3,15 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+)
+
+const (
+	version = "v0.1.4"
 )
 
 // Node はファイル/ディレクトリのツリー構造を表します。
@@ -26,17 +30,34 @@ var (
 	flagContents   bool   // -c, --contents
 	flagTruncate   int    // --truncate
 	flagIncludeExt string // --include-ext
+	flagAll        bool   // -a, --all
+
+	// Version
+	flagVersion bool
 )
 
 func main() {
 	// オプション定義
-	flag.BoolVar(&flagContents, "C", false, "Include file contents (code blocks)")
+	flag.BoolVar(&flagContents, "c", false, "Include file contents (code blocks)")
 	flag.BoolVar(&flagContents, "contents", false, "Include file contents (code blocks)")
+	flag.IntVar(&flagTruncate, "t", 0, "Truncate file content to the first N bytes")
 	flag.IntVar(&flagTruncate, "truncate", 0, "Truncate file content to the first N bytes")
+	flag.StringVar(&flagIncludeExt, "e", "", "Comma-separated list of extensions to include (e.g. .go,.py)")
 	flag.StringVar(&flagIncludeExt, "include-ext", "", "Comma-separated list of extensions to include (e.g. .go,.py)")
+	flag.BoolVar(&flagAll, "a", false, "Include hidden files and directories")
+	flag.BoolVar(&flagAll, "all", false, "Include hidden files and directories")
+
+	// Version
+	flag.BoolVar(&flagVersion, "v", false, "Print version information")
+	flag.BoolVar(&flagVersion, "version", false, "Print version information")
 
 	// パース
 	flag.Parse()
+
+	if flagVersion {
+		fmt.Printf("tree2md %s\n", version)
+		os.Exit(0)
+	}
 
 	// ディレクトリ指定（引数なければカレント）
 	dir := "."
@@ -79,11 +100,16 @@ func buildTree(path string) (*Node, error) {
 	}
 
 	if info.IsDir() {
-		entries, err := ioutil.ReadDir(path)
+		entries, err := os.ReadDir(path)
 		if err != nil {
 			return node, nil // 読み込み不可なら子なしで返す
 		}
 		for _, e := range entries {
+			// -a / --all が指定されていない場合は「ドットで始まる」ものをスキップ
+			if !flagAll && strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+
 			childPath := filepath.Join(path, e.Name())
 			childNode, err := buildTree(childPath)
 			if err == nil {
@@ -176,12 +202,17 @@ func printCodeBlocks(node *Node) {
 		// 言語推定
 		lang := detectLang(node.Name)
 
+		langName := ""
+		if lang != nil {
+			langName = lang.Name
+		}
+
 		// ### 見出し
 		fmt.Printf("\n### %s\n", node.Path)
-		fmt.Printf("```%s\n", lang.Name)
-		// おまけでファイル名をコメントに入れる
-		// fmt.Printf("// %s\n", node.Name)
-		fmt.Printf("%s\n", lang.ToComment(node.Path))
+		fmt.Printf("```%s\n", langName)
+		if lang != nil {
+			fmt.Printf("%s\n", lang.ToComment(node.Path))
+		}
 		// コードブロック内のコメントアウト処理
 		fmt.Print(content)
 		fmt.Println("```")
@@ -201,7 +232,7 @@ func loadFileContent(path string, truncate int) string {
 
 	// truncate == 0 の場合は制限なしで全部読む
 	if truncate <= 0 {
-		data, _ := ioutil.ReadAll(f)
+		data, _ := io.ReadAll(f)
 		return string(data)
 	}
 
