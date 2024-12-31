@@ -1,6 +1,6 @@
-# Context CLI: LLM-Friendly Tree Command with Code Blocks
+# Tree2Md: Tree to Markdown
 
-`context-cli` is a command-line tool that scans a given directory and outputs its structure in Markdown format, including both files and directories. It can also display code files (e.g. `.py`, `.go`) as Markdown code blocks, making it easier to review project files at a glance.
+`tree2md` is a command-line tool that scans a given directory and outputs its structure in Markdown format, including both files and directories. It can also display code files (e.g. `.py`, `.go`) as Markdown code blocks, making it easier to review project files at a glance.
 
 ## Features
 
@@ -18,10 +18,10 @@
 
 ## Installation via `go install`
 
-You can also install `context-cli` directly using `go install`:
+You can also install `tree2md` directly using `go install`:
 
 ```bash
-go install github.com/zawakin/context-cli@latest
+go install github.com/zawakin/tree2md@latest
 ```
 
 ## Manual Installation
@@ -29,14 +29,14 @@ go install github.com/zawakin/context-cli@latest
 1. Ensure you have Go installed.
 2. Clone the repository and build:
    ```bash
-   go build -o context-cli .
+   go build -o tree2md .
    ```
-3. Place the `context-cli` binary in a directory on your `$PATH` (e.g., `/usr/local/bin`).
+3. Place the `tree2md` binary in a directory on your `$PATH` (e.g., `/usr/local/bin`).
 
 ## Usage
 
 ```bash
-context-cli [OPTIONS] <directory>
+tree2md [OPTIONS] <directory>
 ```
 
 ### Options
@@ -58,10 +58,10 @@ sample/
   hello.py
 ```
 
-When you run `./context-cli ./sample`, the mode (`full`) will produce something like:
+When you run `./tree2md ./sample`, the mode (`full`) will produce something like:
 
 ``````markdown
-$ context-cli --mode=full ./sample
+$ tree2md --mode=full ./sample
 ## File Structure
 - .
   - foo
@@ -94,7 +94,7 @@ print("hello")
 In the default `tree` mode, you would only see the Markdown tree (no code blocks):
 
 ``````markdown
-$ context-cli ./sample
+$ tree2md ./sample
 ## File Structure
 - .
   - foo
@@ -103,7 +103,7 @@ $ context-cli ./sample
   - hello.py
 ``````
 
-If you run `./context-cli --pattern="*.py" ./sample`, only `.py` files will appear in the tree (plus their code blocks if in `full` mode):
+If you run `./tree2md --pattern="*.py" ./sample`, only `.py` files will appear in the tree (plus their code blocks if in `full` mode):
 
 ``````markdown
 ## File Structure
@@ -125,7 +125,7 @@ print("hello")
 ```
 ``````
 
-These examples help you visualize how `context-cli` formats the directory structure and code files, allowing you to quickly get an overview of a project.
+These examples help you visualize how `tree2md` formats the directory structure and code files, allowing you to quickly get an overview of a project.
 
 ## License
 
