@@ -178,9 +178,11 @@ func printCodeBlocks(node *Node) {
 
 		// ### 見出し
 		fmt.Printf("\n### %s\n", node.Path)
-		fmt.Printf("```%s\n", lang)
+		fmt.Printf("```%s\n", lang.Name)
 		// おまけでファイル名をコメントに入れる
 		// fmt.Printf("// %s\n", node.Name)
+		fmt.Printf("%s\n", lang.ToComment(node.Path))
+		// コードブロック内のコメントアウト処理
 		fmt.Print(content)
 		fmt.Println("```")
 	}
@@ -211,17 +213,33 @@ func loadFileContent(path string, truncate int) string {
 }
 
 // detectLang は拡張子に応じてコードブロックの言語名を推定する
-func detectLang(filename string) string {
+func detectLang(filename string) *Lang {
 	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".go":
-		return "go"
-	case ".py":
-		return "python"
-	case ".sh":
-		return "shell"
-	case ".js":
-		return "javascript"
+	for _, lang := range langs {
+		if lang.Ext == ext {
+			// return lang.Name
+			return &lang
+		}
 	}
-	return "" // 無指定
+	return nil
+}
+
+type Lang struct {
+	Ext       string
+	Name      string
+	ToComment func(string) string
+}
+
+var langs = []Lang{
+	{".go", "go", func(s string) string { return "// " + s }},
+	{".py", "python", func(s string) string { return "# " + s }},
+	{".sh", "shell", func(s string) string { return "# " + s }},
+	{".js", "javascript", func(s string) string { return "// " + s }},
+	{".ts", "typescript", func(s string) string { return "// " + s }},
+	{".tsx", "tsx", func(s string) string { return "// " + s }},
+	{".html", "html", func(s string) string { return "<!-- " + s + " -->" }},
+	{".css", "css", func(s string) string { return "/* " + s + " */" }},
+	{".scss", "scss", func(s string) string { return "/* " + s + " */" }},
+	{".sass", "sass", func(s string) string { return "/* " + s + " */" }},
+	{".sql", "sql", func(s string) string { return "-- " + s }},
 }
