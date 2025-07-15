@@ -21,8 +21,8 @@ go build -o tree2md .
 ### Testing
 ```bash
 go test .
+go test -v .  # verbose output
 ```
-Note: Currently no test files exist in the codebase.
 
 ### Installation
 ```bash
@@ -47,6 +47,7 @@ go install github.com/zawakin/tree2md@latest
 
 - `-c/--contents`: Include file contents as code blocks
 - `-t/--truncate`: Truncate file content to first N bytes
+- `--max-lines`: Limit file content to first N lines
 - `-e/--include-ext`: Filter by file extensions
 - `-a/--all`: Include hidden files and directories
 - `-v/--version`: Show version information

@@ -1,0 +1,8 @@
+# Build outputs
+tree2md
+
+# Memo files
+z_memo/
+
+# macOS
+.DS_Store
