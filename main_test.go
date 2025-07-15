@@ -126,7 +126,7 @@ func TestLoadFileContentWithLimits(t *testing.T) {
 			maxBytes:         0,
 			maxLines:         0,
 			expectedTruncated: false,
-			expectedLines:    6, // 5 lines + 1 empty line from split
+			expectedLines:    5, // 修正: 正確な行数
 			expectedType:     "",
 		},
 		{
@@ -167,15 +167,20 @@ func TestLoadFileContentWithLimits(t *testing.T) {
 			}
 			
 			if test.expectedLines > 0 {
-				actualLines := len(strings.Split(content, "\n"))
+				// 修正された行数計算ロジックを使用
+				lines := strings.Split(content, "\n")
+				if len(lines) > 0 && lines[len(lines)-1] == "" {
+					lines = lines[:len(lines)-1]
+				}
+				actualLines := len(lines)
 				if actualLines != test.expectedLines {
 					t.Errorf("Expected %d lines, got %d", test.expectedLines, actualLines)
 				}
 			}
 			
-			// 統計情報の確認
-			if info.TotalLines != 6 {
-				t.Errorf("Expected total lines=6, got %d", info.TotalLines)
+			// 統計情報の確認 (修正: 正確な行数)
+			if info.TotalLines != 5 {
+				t.Errorf("Expected total lines=5, got %d", info.TotalLines)
 			}
 			
 			if info.TotalBytes != int64(len(testContent)) {
@@ -245,5 +250,90 @@ func TestFilterByExtension(t *testing.T) {
 		t.Errorf("Expected 1 child in subdir, got %d", len(subdir.Children))
 	} else if subdir.Children[0].Name != "nested.go" {
 		t.Errorf("Expected nested.go, got %s", subdir.Children[0].Name)
+	}
+}
+
+// エッジケースのテスト追加
+func TestLoadFileContentWithLimitsEdgeCases(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "tree2md_test_edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tests := []struct {
+		name           string
+		content        string
+		maxLines       int
+		expectedLines  int
+		expectedTruncated bool
+	}{
+		{
+			name:           "empty file",
+			content:        "",
+			maxLines:       2,
+			expectedLines:  0,
+			expectedTruncated: false,
+		},
+		{
+			name:           "single line no newline",
+			content:        "single line",
+			maxLines:       2,
+			expectedLines:  1,
+			expectedTruncated: false,
+		},
+		{
+			name:           "single line with newline",
+			content:        "single line\n",
+			maxLines:       2,
+			expectedLines:  1,
+			expectedTruncated: false,
+		},
+		{
+			name:           "multiple lines no final newline",
+			content:        "line1\nline2\nline3",
+			maxLines:       2,
+			expectedLines:  2,
+			expectedTruncated: true,
+		},
+		{
+			name:           "exactly max lines",
+			content:        "line1\nline2\n",
+			maxLines:       2,
+			expectedLines:  2,
+			expectedTruncated: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testFile := filepath.Join(tmpDir, test.name+".txt")
+			err := os.WriteFile(testFile, []byte(test.content), 0644)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			content, info := loadFileContentWithLimits(testFile, 0, test.maxLines)
+			
+			if info.Truncated != test.expectedTruncated {
+				t.Errorf("Expected truncated=%v, got %v", test.expectedTruncated, info.Truncated)
+			}
+
+			// 行数の正確な計算
+			lines := strings.Split(content, "\n")
+			if len(lines) > 0 && lines[len(lines)-1] == "" {
+				lines = lines[:len(lines)-1]
+			}
+			actualLines := len(lines)
+			
+			if test.content == "" {
+				// 空ファイルの場合は特別扱い
+				if actualLines != 0 {
+					t.Errorf("Empty file should have 0 lines, got %d", actualLines)
+				}
+			} else if actualLines != test.expectedLines {
+				t.Errorf("Expected %d lines, got %d, content: %q", test.expectedLines, actualLines, content)
+			}
+		})
 	}
 }

@@ -233,6 +233,10 @@ func printCodeBlocks(node *Node) {
 		}
 		// コードブロック内のコメントアウト処理
 		fmt.Print(content)
+		// ファイル末尾に改行がない場合は明示的に追加
+		if !strings.HasSuffix(content, "\n") {
+			fmt.Print("\n")
+		}
 		if truncated.Truncated {
 			message := generateTruncationMessage(truncated)
 			if lang != nil {
@@ -285,6 +289,10 @@ func loadFileContentWithLimits(path string, maxBytes, maxLines int) (string, Tru
 
 	content := string(data)
 	lines := strings.Split(content, "\n")
+	// 末尾の空文字列要素を除去（最後に改行がある場合の対応）
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	totalLines := len(lines)
 	totalBytes := int64(len(data))
 
@@ -320,7 +328,12 @@ func loadFileContentWithLimits(path string, maxBytes, maxLines int) (string, Tru
 
 	info.Truncated = truncatedByBytes || truncatedByLines
 	info.ShownBytes = int64(len(truncatedContent))
-	info.ShownLines = len(strings.Split(truncatedContent, "\n"))
+	// ShownLines の計算でも同様の処理を適用
+	shownLines := strings.Split(truncatedContent, "\n")
+	if len(shownLines) > 0 && shownLines[len(shownLines)-1] == "" {
+		shownLines = shownLines[:len(shownLines)-1]
+	}
+	info.ShownLines = len(shownLines)
 
 	// truncateタイプを設定
 	if truncatedByBytes && truncatedByLines {
