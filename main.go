@@ -37,11 +37,12 @@ type TruncationInfo struct {
 
 // グローバルオプション
 var (
-	flagContents   bool   // -c, --contents
-	flagTruncate   int    // --truncate
-	flagMaxLines   int    // --max-lines
-	flagIncludeExt string // --include-ext
-	flagAll        bool   // -a, --all
+	flagContents       bool   // -c, --contents
+	flagTruncate       int    // --truncate
+	flagMaxLines       int    // --max-lines
+	flagIncludeExt     string // --include-ext
+	flagAll            bool   // -a, --all
+	flagRespectGitignore bool   // --respect-gitignore
 
 	// Version
 	flagVersion bool
@@ -58,6 +59,7 @@ func main() {
 	flag.StringVar(&flagIncludeExt, "include-ext", "", "Comma-separated list of extensions to include (e.g. .go,.py)")
 	flag.BoolVar(&flagAll, "a", false, "Include hidden files and directories")
 	flag.BoolVar(&flagAll, "all", false, "Include hidden files and directories")
+	flag.BoolVar(&flagRespectGitignore, "respect-gitignore", false, "Respect .gitignore files")
 
 	// Version
 	flag.BoolVar(&flagVersion, "v", false, "Print version information")
@@ -77,8 +79,19 @@ func main() {
 		dir = flag.Args()[0]
 	}
 
+	// gitignoreパターンの読み込み
+	var gitignorePatterns []GitignorePattern
+	if flagRespectGitignore {
+		gitignorePath := filepath.Join(dir, ".gitignore")
+		patterns, err := loadGitignore(gitignorePath)
+		if err == nil {
+			gitignorePatterns = patterns
+		}
+		// .gitignoreが存在しない場合はエラーを無視
+	}
+
 	// ツリー構築
-	rootNode, err := buildTree(dir)
+	rootNode, err := buildTreeWithGitignore(dir, gitignorePatterns)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -101,6 +114,11 @@ func main() {
 
 // buildTree は指定したパス以下を再帰的に探索し、Node の階層構造を作る
 func buildTree(path string) (*Node, error) {
+	return buildTreeWithGitignore(path, nil)
+}
+
+// buildTreeWithGitignore はgitignoreパターンを考慮してツリーを構築します
+func buildTreeWithGitignore(path string, gitignorePatterns []GitignorePattern) (*Node, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -123,7 +141,17 @@ func buildTree(path string) (*Node, error) {
 			}
 
 			childPath := filepath.Join(path, e.Name())
-			childNode, err := buildTree(childPath)
+
+			// gitignoreチェック
+			if len(gitignorePatterns) > 0 {
+				// ルートからの相対パスを計算
+				relPath, _ := filepath.Rel(".", childPath)
+				if shouldIgnore(relPath, e.IsDir(), gitignorePatterns) {
+					continue
+				}
+			}
+
+			childNode, err := buildTreeWithGitignore(childPath, gitignorePatterns)
 			if err == nil {
 				node.Children = append(node.Children, childNode)
 			}
@@ -372,6 +400,115 @@ func detectLang(filename string) *Lang {
 		}
 	}
 	return nil
+}
+
+// GitignorePattern は.gitignoreのパターンを表します
+type GitignorePattern struct {
+	pattern    string
+	isNegation bool
+	isDir      bool
+}
+
+// loadGitignore は.gitignoreファイルを読み込み、パターンのスライスを返します
+func loadGitignore(path string) ([]GitignorePattern, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var patterns []GitignorePattern
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		// 空行とコメント行をスキップ
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		pattern := GitignorePattern{pattern: line}
+
+		// 否定パターン
+		if strings.HasPrefix(line, "!") {
+			pattern.isNegation = true
+			pattern.pattern = line[1:]
+		}
+
+		// ディレクトリ指定
+		if strings.HasSuffix(pattern.pattern, "/") {
+			pattern.isDir = true
+			pattern.pattern = strings.TrimSuffix(pattern.pattern, "/")
+		}
+
+		patterns = append(patterns, pattern)
+	}
+
+	return patterns, nil
+}
+
+// shouldIgnore は指定されたパスがgitignoreパターンにマッチするかチェックします
+func shouldIgnore(path string, isDir bool, patterns []GitignorePattern) bool {
+	// 相対パスに変換（./で始まる場合は除去）
+	path = strings.TrimPrefix(path, "./")
+
+	ignored := false
+	for _, pattern := range patterns {
+		if pattern.isDir && !isDir {
+			// ディレクトリパターンだがファイルの場合はスキップ
+			continue
+		}
+
+		if matchGitignorePattern(path, pattern.pattern) {
+			if pattern.isNegation {
+				ignored = false
+			} else {
+				ignored = true
+			}
+		}
+	}
+
+	return ignored
+}
+
+// matchGitignorePattern は簡易的なgitignoreパターンマッチングを行います
+func matchGitignorePattern(path, pattern string) bool {
+	// 完全一致
+	if path == pattern {
+		return true
+	}
+
+	// パスのベース名での一致
+	if filepath.Base(path) == pattern {
+		return true
+	}
+
+	// ワイルドカードを含むパターンの簡易的な処理
+	if strings.Contains(pattern, "*") {
+		// 簡易的な実装: * を任意の文字列として扱う
+		// 例: *.log -> .logで終わるかチェック
+		if strings.HasPrefix(pattern, "*") {
+			suffix := strings.TrimPrefix(pattern, "*")
+			if strings.HasSuffix(path, suffix) || strings.HasSuffix(filepath.Base(path), suffix) {
+				return true
+			}
+		}
+		// 例: test* -> testで始まるかチェック
+		if strings.HasSuffix(pattern, "*") {
+			prefix := strings.TrimSuffix(pattern, "*")
+			if strings.HasPrefix(path, prefix) || strings.HasPrefix(filepath.Base(path), prefix) {
+				return true
+			}
+		}
+	}
+
+	// パスの任意の部分でマッチ（例: node_modules/）
+	pathParts := strings.Split(path, "/")
+	for _, part := range pathParts {
+		if part == pattern {
+			return true
+		}
+	}
+
+	return false
 }
 
 type Lang struct {
