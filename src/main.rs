@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-const VERSION: &str = "0.1.6";
+const VERSION: &str = "0.2.0";
 
 #[derive(Debug)]
 struct Node {

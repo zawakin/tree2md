@@ -1,6 +1,6 @@
 [package]
 name = "tree2md"
-version = "0.1.6"
+version = "0.2.0"
 edition = "2021"
 authors = ["zawakin"]
 description = "A CLI tool that scans directories and outputs their structure in Markdown format"

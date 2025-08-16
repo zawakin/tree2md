@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - Rust Version
+## [0.2.0] - 2025-01-17 - Rust Version
 
 ### Added
 - Rust版として完全書き直し
