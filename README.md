@@ -1,136 +1,163 @@
-# Tree2Md: Tree to Markdown
+# tree2md (Rust Version)
 
-`tree2md` is a command-line tool that scans a given directory and outputs its structure in Markdown format, including both files and directories. It can also display code files (e.g. `.py`, `.go`) as Markdown code blocks, making it easier to review project files at a glance.
+A command-line tool that scans directories and outputs their structure in Markdown format. Can optionally include file contents as code blocks with syntax highlighting.
 
 ## Features
 
-- **File Structure in Markdown:**
-  Display directories and files as a Markdown tree.
-- **Code Blocks for Supported Files:**
-  files are automatically included as code blocks for easy viewing.
-- **Modes:**
-  - **full** (default): Show all files and directories as a tree, and display code blocks.
-  - **tree**: Show all files and directories as a tree only (no code blocks).
-- **Language Support:**
-  Use `--lang=en` or `--lang=ja` to switch UI text. By default, `en` is used.
+- Generate Markdown-formatted directory trees
+- Include file contents as syntax-highlighted code blocks
+- Filter files by extension
+- Respect `.gitignore` patterns
+- Truncate large files by bytes or lines
+- Support for hidden files and directories
+- Fast and efficient, written in Rust
 
 ## Installation
 
-## Installation via `go install`
-
-You can also install `tree2md` directly using `go install`:
+### From crates.io
 
 ```bash
-go install github.com/zawakin/tree2md@latest
+cargo install tree2md
 ```
 
-## Manual Installation
+### From source
 
-1. Ensure you have Go installed.
-2. Clone the repository and build:
-   ```bash
-   go build -o tree2md .
-   ```
-3. Place the `tree2md` binary in a directory on your `$PATH` (e.g., `/usr/local/bin`).
+```bash
+git clone https://github.com/zawakin/tree2md.git
+cd tree2md
+cargo build --release
+# Binary will be at ./target/release/tree2md
+```
+
+### Pre-built binaries
+
+Download pre-built binaries from the [releases page](https://github.com/zawakin/tree2md/releases).
+
+Available for:
+- Linux (x86_64, aarch64, musl)
+- macOS (x86_64, Apple Silicon)
+- Windows (x86_64)
 
 ## Usage
 
 ```bash
-tree2md [OPTIONS] <directory>
+# Basic usage - output tree structure of current directory
+tree2md
+
+# Scan specific directory
+tree2md /path/to/directory
+
+# Include file contents as code blocks
+tree2md -c
+
+# Filter by extensions
+tree2md -e .rs,.toml
+
+# Include hidden files
+tree2md -a
+
+# Respect .gitignore
+tree2md --respect-gitignore
+
+# Truncate file contents
+tree2md -c --max-lines 50
+tree2md -c --truncate 1000
 ```
 
-### Options
+## Options
 
-- `--all` : Show hidden files and directories as well.
-- `--pattern="*.py"` : Filter files by a glob pattern.
-- `--mode=full|tree` : Set output mode. Default is `full`.
-- `--lang=en|ja` : Set language for UI text.
+- `-c, --contents` - Include file contents as code blocks
+- `-t, --truncate <N>` - Truncate file content to the first N bytes
+- `--max-lines <N>` - Limit file content to the first N lines
+- `-e, --include-ext <EXTS>` - Comma-separated list of extensions to include (e.g., .go,.py)
+- `-a, --all` - Include hidden files and directories
+- `--respect-gitignore` - Respect .gitignore files
+- `-h, --help` - Print help information
+- `-V, --version` - Print version information
 
-### Example
+## Example Output
 
-Suppose your directory structure looks like this:
-
-```
-sample/
-  foo/
-    bar.go
-    bar.py
-  hello.py
-```
-
-When you run `./tree2md ./sample`, the mode (`full`) will produce something like:
-
-``````markdown
-$ tree2md --mode=full ./sample
+```markdown
 ## File Structure
-- .
-  - foo
-    - bar.go
-    - bar.py
-  - hello.py
+- my_project/
+  - src/
+    - main.rs
+    - lib.rs
+  - Cargo.toml
+  - README.md
 
-### foo/bar.go
-```go
-// foo/bar.go
-package foo
-
-func Bar() {
+### src/main.rs
+```rust
+// src/main.rs
+fn main() {
+    println!("Hello, world!");
 }
 ```
 
-### foo/bar.py
-```python
-# foo/bar.py
-print("foo/bar")
+### src/lib.rs
+```rust
+// src/lib.rs
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+```
 ```
 
-### hello.py
-```python
-# hello.py
-print("hello")
+## Supported Languages
+
+The tool automatically detects and applies syntax highlighting for:
+
+- Rust (.rs)
+- Go (.go)
+- Python (.py)
+- JavaScript (.js)
+- TypeScript (.ts, .tsx)
+- HTML (.html)
+- CSS (.css, .scss, .sass)
+- SQL (.sql)
+- Shell scripts (.sh)
+- TOML (.toml)
+- YAML (.yaml, .yml)
+- JSON (.json)
+- Markdown (.md)
+
+## Differences from Go Version
+
+This Rust implementation maintains full compatibility with the original Go version while adding:
+- Better performance through Rust's zero-cost abstractions
+- More robust gitignore pattern matching using the `ignore` crate
+- Cross-platform binary distribution
+- Available via cargo for easy installation
+
+## Building from Source
+
+Requirements:
+- Rust 1.70 or later
+- Cargo
+
+```bash
+# Clone the repository
+git clone https://github.com/zawakin/tree2md.git
+cd tree2md
+
+# Build release version
+cargo build --release
+
+# Run tests
+cargo test
+
+# Install locally
+cargo install --path .
 ```
-``````
-
-In the default `tree` mode, you would only see the Markdown tree (no code blocks):
-
-``````markdown
-$ tree2md ./sample
-## File Structure
-- .
-  - foo
-    - bar.go
-    - bar.py
-  - hello.py
-``````
-
-If you run `./tree2md --pattern="*.py" ./sample`, only `.py` files will appear in the tree (plus their code blocks if in `full` mode):
-
-``````markdown
-## File Structure
-- .
-  - foo
-    - bar.py
-  - hello.py
-
-### foo/bar.py
-```python
-# foo/bar.py
-print("foo/bar")
-```
-
-### hello.py
-```python
-# hello.py
-print("hello")
-```
-``````
-
-These examples help you visualize how `tree2md` formats the directory structure and code files, allowing you to quickly get an overview of a project.
 
 ## License
 
-This project is released under the MIT License. See [LICENSE](LICENSE) for details.
+MIT License
 
 ## Contributing
 
-Issues and PRs are welcome. Feel free to suggest improvements or new features.
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Original Go Version
+
+The original Go version is available at [github.com/zawakin/tree2md](https://github.com/zawakin/tree2md)
