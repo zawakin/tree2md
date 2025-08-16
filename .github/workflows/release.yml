@@ -105,8 +105,9 @@ jobs:
 
   publish-crate:
     name: Publish to crates.io
-    needs: build
+    needs: release
     runs-on: ubuntu-latest
+    if: success()
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
