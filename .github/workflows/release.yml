@@ -63,10 +63,13 @@ jobs:
           cd dist
           if [ "${{ matrix.pack }}" = "zip" ]; then
             7z a -tzip "$OUT.zip" "$OUT"
+            # Use certutil on Windows for SHA256
+            certutil -hashfile "$OUT.zip" SHA256 | head -2 | tail -1 | tr -d ' ' > "$OUT.sha256"
+            echo "  $OUT.zip" >> "$OUT.sha256"
           else
             tar czf "$OUT.tar.gz" "$OUT"
+            shasum -a 256 "$OUT.tar.gz" > "$OUT.sha256"
           fi
-          shasum -a 256 "$OUT".* > "$OUT".sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
