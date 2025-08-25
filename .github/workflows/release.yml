@@ -60,9 +60,13 @@ jobs:
           cp target/${{ matrix.target }}/release/$BIN dist/$OUT/
           cp README.md dist/$OUT/ 2>/dev/null || true
           cp LICENSE dist/$OUT/ 2>/dev/null || true
-          (cd dist && \
-            if [ "${{ matrix.pack }}" = "zip" ]; then zip -r "$OUT.zip" "$OUT"; else tar czf "$OUT.tar.gz" "$OUT"; fi)
-          (cd dist && shasum -a 256 "$OUT".* > "$OUT".sha256)
+          cd dist
+          if [ "${{ matrix.pack }}" = "zip" ]; then
+            7z a -tzip "$OUT.zip" "$OUT"
+          else
+            tar czf "$OUT.tar.gz" "$OUT"
+          fi
+          shasum -a 256 "$OUT".* > "$OUT".sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
