@@ -1,4 +1,4 @@
-# Release Process (Simple Version)
+# Release Process
 
 ## 0. Update Version
 
