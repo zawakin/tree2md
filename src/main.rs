@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-const VERSION: &str = "0.3.0";
+const VERSION: &str = "0.3.1";
 
 #[derive(Debug)]
 struct Node {
@@ -186,7 +186,9 @@ fn main() -> io::Result<()> {
     let patterns = compile_patterns(&args.find_patterns)?;
 
     // Get the root path for pattern matching
-    let root_path = Path::new(&args.directory).canonicalize()?;
+    let root_path = Path::new(&args.directory)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
 
     // Build tree
     let root_node = build_tree(
@@ -272,8 +274,17 @@ fn build_tree(
     if metadata.is_dir() {
         let mut entries: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok()).collect();
 
-        // Sort entries for consistent output
-        entries.sort_by_key(|e| e.file_name());
+        // Sort entries: directories first, then files, alphabetically within each group
+        entries.sort_by(|a, b| {
+            let a_is_dir = a.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let b_is_dir = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
+
+            match (a_is_dir, b_is_dir) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.file_name().cmp(&b.file_name()),
+            }
+        });
 
         for entry in entries {
             let entry_path = entry.path();
@@ -291,13 +302,17 @@ fn build_tree(
                 }
             }
 
-            if let Ok(child_node) = build_tree(
-                entry_path.to_str().unwrap_or(""),
-                args,
-                gitignore,
-                patterns,
-                root_path,
-            ) {
+            // Skip if path cannot be converted to string (non-UTF8 paths)
+            let entry_path_str = match entry_path.to_str() {
+                Some(path) => path,
+                None => {
+                    eprintln!("Warning: Skipping non-UTF8 path: {:?}", entry_path);
+                    continue;
+                }
+            };
+
+            if let Ok(child_node) = build_tree(entry_path_str, args, gitignore, patterns, root_path)
+            {
                 // Skip if patterns are specified and node doesn't match
                 if !patterns.is_empty() && !node_matches_patterns(&child_node, patterns, root_path)
                 {
@@ -319,13 +334,26 @@ fn node_matches_patterns(node: &Node, patterns: &[Pattern], root_path: &Path) ->
     // Check if any pattern matches this node or its descendants
     if !node.is_dir {
         // For files, check if the relative path matches any pattern
-        if let Ok(canonical_path) = node.path.canonicalize() {
-            if let Ok(relative_path) = canonical_path.strip_prefix(root_path) {
-                let path_str = relative_path.to_string_lossy();
-                for pattern in patterns {
-                    if pattern.matches(&path_str) {
-                        return true;
-                    }
+        // Use absolute path if available, otherwise use the path as-is
+        let check_path = node
+            .path
+            .canonicalize()
+            .unwrap_or_else(|_| node.path.clone());
+
+        if let Ok(relative_path) = check_path.strip_prefix(root_path) {
+            // Convert path to use forward slashes for consistent pattern matching
+            let path_str = relative_path.to_string_lossy().replace('\\', "/");
+            for pattern in patterns {
+                if pattern.matches(&path_str) {
+                    return true;
+                }
+            }
+        } else if let Ok(relative_path) = node.path.strip_prefix(root_path) {
+            // Fallback: try stripping prefix from non-canonical path
+            let path_str = relative_path.to_string_lossy().replace('\\', "/");
+            for pattern in patterns {
+                if pattern.matches(&path_str) {
+                    return true;
                 }
             }
         }

@@ -35,8 +35,8 @@ cargo build --release
 Download pre-built binaries from the [releases page](https://github.com/zawakin/tree2md/releases).
 
 Available for:
-- Linux (x86_64, aarch64, musl)
-- macOS (x86_64, Apple Silicon)
+- Linux (x86_64)
+- macOS (Apple Silicon)
 - Windows (x86_64)
 
 ## Usage

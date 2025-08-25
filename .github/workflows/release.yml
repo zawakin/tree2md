@@ -1,106 +1,114 @@
 name: Release
-
 on:
   push:
-    tags:
-      - 'v*'
+    tags: [ 'v*' ]
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
-    name: Build ${{ matrix.target }}
+    name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            archive: tar.gz
-            archive-cmd: tar czf
-            suffix: ""
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            archive: tar.gz
-            archive-cmd: tar czf
-            suffix: ""
+            ext: ""
+            pack: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            archive: tar.gz
-            archive-cmd: tar czf
-            suffix: ""
+            ext: ""
+            pack: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            archive: zip
-            archive-cmd: 7z a
-            suffix: .exe
+            ext: .exe
+            pack: zip
 
     steps:
       - uses: actions/checkout@v4
-      
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      
       - uses: Swatinem/rust-cache@v2
-      
-      - name: Install cross-compilation tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-      
-      - name: Install musl tools
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-      
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-      
-      - name: Create archive
+
+      - name: Verify tag == Cargo.toml
         shell: bash
         run: |
-          mkdir -p dist
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/tree2md${{ matrix.suffix }}" dist/
-            cd dist
-            7z a "../tree2md-${{ matrix.target }}.${{ matrix.archive }}" tree2md${{ matrix.suffix }}
-          else
-            cp "target/${{ matrix.target }}/release/tree2md${{ matrix.suffix }}" dist/
-            cd dist
-            tar czf "../tree2md-${{ matrix.target }}.${{ matrix.archive }}" tree2md${{ matrix.suffix }}
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(grep '^version *= *"' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::Tag($TAG) != Cargo.toml(v$VERSION)"
+            exit 1
           fi
-      
+          echo "OK: $TAG matches Cargo.toml"
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare package
+        shell: bash
+        run: |
+          BIN="tree2md${{ matrix.ext }}"
+          OUT="tree2md-${{ matrix.target }}"
+          mkdir -p dist/$OUT
+          cp target/${{ matrix.target }}/release/$BIN dist/$OUT/
+          cp README.md dist/$OUT/ 2>/dev/null || true
+          cp LICENSE dist/$OUT/ 2>/dev/null || true
+          (cd dist && \
+            if [ "${{ matrix.pack }}" = "zip" ]; then zip -r "$OUT.zip" "$OUT"; else tar czf "$OUT.tar.gz" "$OUT"; fi)
+          (cd dist && shasum -a 256 "$OUT".* > "$OUT".sha256)
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tree2md-${{ matrix.target }}
-          path: tree2md-${{ matrix.target }}.${{ matrix.archive }}
+          path: dist/tree2md-${{ matrix.target }}.*
 
   release:
-    name: Create Release
+    name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: always() && contains(needs.*.result, 'success')
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
       - name: Create release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/tree2md-*
           draft: false
           prerelease: false
-          generate_release_notes: true
+
+  publish:
+    name: Publish to crates.io
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Ensure tag == Cargo.toml (strict)
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(grep '^version *= *"' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          [ "v$VERSION" = "$TAG" ] || (echo "::error::Tag($TAG) != v$VERSION"; exit 1)
+          echo "OK: $TAG == v$VERSION"
+
+      - name: Check not already published
+        run: |
+          VERSION=$(grep '^version *= *"' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          # Simple check - fails if version already exists, passes if unpublished (404) or not found
+          cargo search tree2md --limit 1 | grep -q "tree2md = \"$VERSION\"" && \
+            (echo "::error::Version $VERSION already on crates.io"; exit 1) || true
+
+      - name: Publish
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --token "$CARGO_REGISTRY_TOKEN"

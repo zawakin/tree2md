@@ -10,21 +10,20 @@ This file provides guidance to Claude Code when working with this repository.
 
 For common development tasks, use the following commands:
 
-### 📋 Development
+### Development
 - **Build**: `cargo build --release`
 - **Test**: `cargo test`
 - **Run**: `./target/release/tree2md [OPTIONS] <directory>`
+- **Format**: `cargo fmt`
+- **Lint**: `cargo clippy -- -D warnings`
 
-### 🚀 Release Process
-- **Pre-release test**: `./scripts/test-release.sh`
-- **Automated release**: `./scripts/release.sh [patch|minor|major]`
-- **Manual release checklist**: See `.claude/commands/pre-release-checklist.md`
+### Release Process (Simplified)
+1. **Update version**: Manually edit `Cargo.toml`, `src/main.rs`, and `CHANGELOG.md`
+2. **Release**: `./scripts/release.sh vX.Y.Z`
+3. **CI automatically**: Builds binaries, creates GitHub Release, publishes to crates.io
 
-### 📚 Documentation
-All detailed documentation and workflows are in `.claude/commands/`:
-
-- `release.md` - Manual release steps
-- `pre-release-checklist.md` - Complete release checklist
+### Documentation
+- `release.md` - Simple release steps
 
 ## Important Notes
 
