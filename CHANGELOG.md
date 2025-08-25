@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2025-01-25
+
+### Added
+- Wildcard pattern support with `-f/--find` option
+- Support for glob patterns (e.g., `*.rs`, `src/**/*.go`)
+- Multiple pattern support (can use `-f` multiple times)
+- `glob` crate dependency for pattern matching
+
+### Improved
+- README documentation updated with wildcard examples
+
 ## [0.2.0] - 2025-01-17 - Rust Version
 
 ### Added

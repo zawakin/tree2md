@@ -7,6 +7,7 @@ A command-line tool that scans directories and outputs their structure in Markdo
 - Generate Markdown-formatted directory trees
 - Include file contents as syntax-highlighted code blocks
 - Filter files by extension
+- Find files using wildcard patterns (glob)
 - Respect `.gitignore` patterns
 - Truncate large files by bytes or lines
 - Support for hidden files and directories
@@ -53,6 +54,11 @@ tree2md -c
 # Filter by extensions
 tree2md -e .rs,.toml
 
+# Find files matching wildcard patterns
+tree2md -f "*.rs"                    # All .rs files
+tree2md -f "src/**/*.rs"             # All .rs files under src/
+tree2md -f "*.toml" -f "*.md"        # Multiple patterns
+
 # Include hidden files
 tree2md -a
 
@@ -62,6 +68,9 @@ tree2md --respect-gitignore
 # Truncate file contents
 tree2md -c --max-lines 50
 tree2md -c --truncate 1000
+
+# Combine options
+tree2md -f "src/**/*.rs" -c --max-lines 100
 ```
 
 ## Options
@@ -70,6 +79,7 @@ tree2md -c --truncate 1000
 - `-t, --truncate <N>` - Truncate file content to the first N bytes
 - `--max-lines <N>` - Limit file content to the first N lines
 - `-e, --include-ext <EXTS>` - Comma-separated list of extensions to include (e.g., .go,.py)
+- `-f, --find <PATTERNS>` - Find files matching wildcard patterns (can be used multiple times)
 - `-a, --all` - Include hidden files and directories
 - `--respect-gitignore` - Respect .gitignore files
 - `-h, --help` - Print help information

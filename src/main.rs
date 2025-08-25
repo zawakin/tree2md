@@ -1,10 +1,11 @@
 use clap::Parser;
+use glob::Pattern;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-const VERSION: &str = "0.2.0";
+const VERSION: &str = "0.3.0";
 
 #[derive(Debug)]
 struct Node {
@@ -60,6 +61,11 @@ struct Args {
     /// Respect .gitignore files
     #[arg(long = "respect-gitignore")]
     respect_gitignore: bool,
+
+    /// Find files matching wildcard patterns (e.g., "*.rs", "src/**/*.go")
+    /// Multiple patterns can be specified by using this option multiple times
+    #[arg(short = 'f', long = "find")]
+    find_patterns: Vec<String>,
 
     /// Directory to scan (defaults to current directory)
     #[arg(default_value = ".")]
@@ -176,8 +182,20 @@ fn main() -> io::Result<()> {
         None
     };
 
+    // Compile wildcard patterns
+    let patterns = compile_patterns(&args.find_patterns)?;
+
+    // Get the root path for pattern matching
+    let root_path = Path::new(&args.directory).canonicalize()?;
+
     // Build tree
-    let root_node = build_tree(&args.directory, &args, gitignore.as_ref())?;
+    let root_node = build_tree(
+        &args.directory,
+        &args,
+        gitignore.as_ref(),
+        &patterns,
+        &root_path,
+    )?;
 
     // Filter by extensions if specified
     let mut root_node = root_node;
@@ -198,6 +216,22 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+fn compile_patterns(pattern_strings: &[String]) -> io::Result<Vec<Pattern>> {
+    let mut patterns = Vec::new();
+    for pattern_str in pattern_strings {
+        match Pattern::new(pattern_str) {
+            Ok(pattern) => patterns.push(pattern),
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Invalid glob pattern '{}': {}", pattern_str, e),
+                ));
+            }
+        }
+    }
+    Ok(patterns)
+}
+
 fn load_gitignore(dir: &str) -> io::Result<Option<Gitignore>> {
     let gitignore_path = Path::new(dir).join(".gitignore");
     if !gitignore_path.exists() {
@@ -206,17 +240,24 @@ fn load_gitignore(dir: &str) -> io::Result<Option<Gitignore>> {
 
     let mut builder = GitignoreBuilder::new(dir);
     builder.add(&gitignore_path);
-    
+
     match builder.build() {
         Ok(gitignore) => Ok(Some(gitignore)),
         Err(_) => Ok(None),
     }
 }
 
-fn build_tree(path: &str, args: &Args, gitignore: Option<&Gitignore>) -> io::Result<Node> {
+fn build_tree(
+    path: &str,
+    args: &Args,
+    gitignore: Option<&Gitignore>,
+    patterns: &[Pattern],
+    root_path: &Path,
+) -> io::Result<Node> {
     let path = Path::new(path);
     let metadata = fs::metadata(path)?;
-    let name = path.file_name()
+    let name = path
+        .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("."))
         .to_string_lossy()
         .to_string();
@@ -229,10 +270,8 @@ fn build_tree(path: &str, args: &Args, gitignore: Option<&Gitignore>) -> io::Res
     };
 
     if metadata.is_dir() {
-        let mut entries: Vec<_> = fs::read_dir(path)?
-            .filter_map(|e| e.ok())
-            .collect();
-        
+        let mut entries: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok()).collect();
+
         // Sort entries for consistent output
         entries.sort_by_key(|e| e.file_name());
 
@@ -255,14 +294,52 @@ fn build_tree(path: &str, args: &Args, gitignore: Option<&Gitignore>) -> io::Res
             if let Ok(child_node) = build_tree(
                 entry_path.to_str().unwrap_or(""),
                 args,
-                gitignore
+                gitignore,
+                patterns,
+                root_path,
             ) {
+                // Skip if patterns are specified and node doesn't match
+                if !patterns.is_empty() && !node_matches_patterns(&child_node, patterns, root_path)
+                {
+                    continue;
+                }
                 node.children.push(child_node);
             }
         }
     }
 
     Ok(node)
+}
+
+fn node_matches_patterns(node: &Node, patterns: &[Pattern], root_path: &Path) -> bool {
+    if patterns.is_empty() {
+        return true;
+    }
+
+    // Check if any pattern matches this node or its descendants
+    if !node.is_dir {
+        // For files, check if the relative path matches any pattern
+        if let Ok(canonical_path) = node.path.canonicalize() {
+            if let Ok(relative_path) = canonical_path.strip_prefix(root_path) {
+                let path_str = relative_path.to_string_lossy();
+                for pattern in patterns {
+                    if pattern.matches(&path_str) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // For directories, check if any child matches
+    for child in &node.children {
+        if node_matches_patterns(child, patterns, root_path) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn parse_ext_list(ext_string: &str) -> Vec<String> {
@@ -313,13 +390,13 @@ fn print_tree(node: &Node, indent: &str) {
     for (i, child) in node.children.iter().enumerate() {
         let _is_last = i == node.children.len() - 1;
         let bullet = "  - ";
-        
+
         let name = if child.is_dir {
             format!("{}/", child.name)
         } else {
             child.name.clone()
         };
-        
+
         println!("{}{}{}", indent, bullet, name);
 
         if child.is_dir {
@@ -331,11 +408,8 @@ fn print_tree(node: &Node, indent: &str) {
 fn print_code_blocks(node: &Node, args: &Args) {
     if !node.is_dir {
         // Load file content with limits
-        let (content, truncation_info) = load_file_content_with_limits(
-            &node.path,
-            args.truncate,
-            args.max_lines,
-        );
+        let (content, truncation_info) =
+            load_file_content_with_limits(&node.path, args.truncate, args.max_lines);
 
         // Detect language
         let lang = detect_lang(&node.name);
@@ -345,18 +419,18 @@ fn print_code_blocks(node: &Node, args: &Args) {
         // Print markdown code block
         println!("\n### {}", node.path.display());
         println!("```{}", lang_name);
-        
+
         if let Some(l) = lang {
             println!("{}", l.to_comment(&node.path.display().to_string()));
         }
-        
+
         print!("{}", content);
-        
+
         // Ensure newline at end
         if !content.ends_with('\n') {
             println!();
         }
-        
+
         if truncation_info.truncated {
             let message = generate_truncation_message(&truncation_info);
             if let Some(l) = lang {
@@ -365,7 +439,7 @@ fn print_code_blocks(node: &Node, args: &Args) {
                 println!("// {}", message);
             }
         }
-        
+
         println!("```");
     }
 
@@ -380,7 +454,7 @@ fn load_file_content_with_limits(
     max_lines: Option<usize>,
 ) -> (String, TruncationInfo) {
     let file_result = fs::File::open(path);
-    
+
     if let Err(e) = file_result {
         return (
             format!("// Error reading file: {}\n", e),
@@ -397,7 +471,7 @@ fn load_file_content_with_limits(
 
     let mut file = file_result.unwrap();
     let mut content = String::new();
-    
+
     if let Err(e) = file.read_to_string(&mut content) {
         return (
             format!("// Error reading file: {}\n", e),
@@ -493,7 +567,7 @@ fn detect_lang(filename: &str) -> Option<&'static Lang> {
     let path = Path::new(filename);
     let ext = path.extension()?.to_str()?;
     let ext_with_dot = format!(".{}", ext.to_lowercase());
-    
+
     LANGS.iter().find(|lang| lang.ext == ext_with_dot)
 }
 
@@ -507,7 +581,7 @@ mod tests {
     fn test_parse_ext_list() {
         let exts = parse_ext_list("go,py,.rs");
         assert_eq!(exts, vec![".go", ".py", ".rs"]);
-        
+
         let exts = parse_ext_list(".md, .txt, rs");
         assert_eq!(exts, vec![".md", ".txt", ".rs"]);
     }
@@ -568,14 +642,23 @@ mod tests {
             include_ext: None,
             all: false,
             respect_gitignore: false,
+            find_patterns: vec![],
             directory: temp_path.to_str().unwrap().to_string(),
         };
 
-        let node = build_tree(temp_path.to_str().unwrap(), &args, None)?;
-        
+        let patterns = compile_patterns(&args.find_patterns)?;
+        let root_path = temp_path.canonicalize()?;
+        let node = build_tree(
+            temp_path.to_str().unwrap(),
+            &args,
+            None,
+            &patterns,
+            &root_path,
+        )?;
+
         assert!(node.is_dir);
         assert_eq!(node.children.len(), 2); // src and Cargo.toml (not .gitignore)
-        
+
         Ok(())
     }
 
@@ -609,7 +692,7 @@ mod tests {
 
         let exts = vec![".rs".to_string(), ".toml".to_string()];
         filter_by_extension(&mut root, &exts);
-        
+
         assert_eq!(root.children.len(), 2);
         assert_eq!(root.children[0].name, "main.rs");
         assert_eq!(root.children[1].name, "config.toml");
