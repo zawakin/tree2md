@@ -2,22 +2,78 @@ name: Publish to crates.io
 
 on:
   workflow_dispatch:
-  
+    inputs:
+      dry_run:
+        description: 'Dry run (test publish without uploading)'
+        type: boolean
+        default: true
+        required: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git describe
       
       - uses: dtolnay/rust-toolchain@stable
       
-      - name: Check crate
+      - name: Verify version tag matches Cargo.toml
         run: |
-          cargo check
+          echo "Checking version consistency..."
+          VERSION=$(grep "^version" Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Cargo.toml version: $VERSION"
+          
+          # Get the latest tag
+          if git describe --tags --abbrev=0 2>/dev/null; then
+            GIT_TAG=$(git describe --tags --abbrev=0)
+            echo "Latest git tag: $GIT_TAG"
+            
+            # Check if tag matches version
+            if [ "v$VERSION" != "$GIT_TAG" ]; then
+              echo "::warning::Version mismatch - Cargo.toml: v$VERSION, Git tag: $GIT_TAG"
+              echo "This might be intentional if you're publishing a patch without a tag."
+            else
+              echo "✓ Version matches git tag"
+            fi
+          else
+            echo "::warning::No git tags found"
+          fi
+      
+      - name: Check if version already published
+        id: check_published
+        run: |
+          VERSION=$(grep "^version" Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "Checking if tree2md v$VERSION is already on crates.io..."
+          
+          # Check if the version exists on crates.io
+          if cargo search tree2md --limit 1 | grep -q "tree2md = \"$VERSION\""; then
+            echo "::error::Version $VERSION is already published on crates.io"
+            echo "already_published=true" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✓ Version $VERSION is not yet published"
+            echo "already_published=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Run tests
+        run: |
+          echo "Running tests before publish..."
           cargo test
       
+      - name: Publish to crates.io (Dry Run)
+        if: inputs.dry_run == true
+        run: |
+          echo "🔍 Running publish dry run..."
+          cargo publish --dry-run
+          echo "✓ Dry run successful! Run workflow with dry_run=false to actually publish."
+      
       - name: Publish to crates.io
+        if: inputs.dry_run == false
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          echo "🚀 Publishing to crates.io..."
           cargo publish --token $CARGO_REGISTRY_TOKEN
+          echo "✓ Successfully published to crates.io!"
