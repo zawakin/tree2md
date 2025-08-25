@@ -11,6 +11,8 @@
 ### Improved
 - Sort directories before files in output for better readability
 - Added warnings for skipped non-UTF8 paths instead of silent failures
+- Simplified release process to single-command automation
+- Integrated crates.io publishing into main release workflow
 
 ## [0.3.0] - 2025-01-25
 
