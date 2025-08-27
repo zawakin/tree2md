@@ -1,3 +1,6 @@
+mod language;
+mod utils;
+
 use clap::Parser;
 use glob::Pattern;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
@@ -5,11 +8,10 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-mod language;
-mod utils;
-
 use language::detect_lang;
-use utils::{compile_patterns, generate_truncation_message, parse_ext_list, TruncateType, TruncationInfo};
+use utils::{
+    compile_patterns, generate_truncation_message, parse_ext_list, TruncateType, TruncationInfo,
+};
 
 const VERSION: &str = "0.3.1";
 
@@ -20,7 +22,6 @@ struct Node {
     is_dir: bool,
     children: Vec<Node>,
 }
-
 
 #[derive(Parser)]
 #[command(name = "tree2md")]
@@ -106,7 +107,6 @@ fn main() -> io::Result<()> {
 
     Ok(())
 }
-
 
 fn load_gitignore(dir: &str) -> io::Result<Option<Gitignore>> {
     let gitignore_path = Path::new(dir).join(".gitignore");
@@ -243,7 +243,6 @@ fn node_matches_patterns(node: &Node, patterns: &[Pattern], root_path: &Path) ->
 
     false
 }
-
 
 fn filter_by_extension(node: &mut Node, exts: &[String]) {
     if !node.is_dir {
@@ -427,14 +426,11 @@ fn load_file_content_with_limits(
     (truncated_content, info)
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
-
 
     #[test]
     fn test_detect_lang() {
@@ -444,7 +440,6 @@ mod tests {
         assert_eq!(detect_lang("index.html").unwrap().name, "html");
         assert!(detect_lang("unknown.xyz").is_none());
     }
-
 
     #[test]
     fn test_build_tree() -> io::Result<()> {
