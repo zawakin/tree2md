@@ -6,7 +6,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 mod language;
+mod utils;
+
 use language::detect_lang;
+use utils::{compile_patterns, generate_truncation_message, parse_ext_list, TruncateType, TruncationInfo};
 
 const VERSION: &str = "0.3.1";
 
@@ -18,23 +21,6 @@ struct Node {
     children: Vec<Node>,
 }
 
-#[derive(Debug)]
-struct TruncationInfo {
-    truncated: bool,
-    total_lines: usize,
-    total_bytes: usize,
-    shown_lines: usize,
-    shown_bytes: usize,
-    truncate_type: TruncateType,
-}
-
-#[derive(Debug)]
-enum TruncateType {
-    None,
-    Bytes,
-    Lines,
-    Both,
-}
 
 #[derive(Parser)]
 #[command(name = "tree2md")]
@@ -121,21 +107,6 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn compile_patterns(pattern_strings: &[String]) -> io::Result<Vec<Pattern>> {
-    let mut patterns = Vec::new();
-    for pattern_str in pattern_strings {
-        match Pattern::new(pattern_str) {
-            Ok(pattern) => patterns.push(pattern),
-            Err(e) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("Invalid glob pattern '{}': {}", pattern_str, e),
-                ));
-            }
-        }
-    }
-    Ok(patterns)
-}
 
 fn load_gitignore(dir: &str) -> io::Result<Option<Gitignore>> {
     let gitignore_path = Path::new(dir).join(".gitignore");
@@ -273,20 +244,6 @@ fn node_matches_patterns(node: &Node, patterns: &[Pattern], root_path: &Path) ->
     false
 }
 
-fn parse_ext_list(ext_string: &str) -> Vec<String> {
-    ext_string
-        .split(',')
-        .map(|s| {
-            let ext = s.trim().to_lowercase();
-            if ext.starts_with('.') {
-                ext
-            } else {
-                format!(".{}", ext)
-            }
-        })
-        .filter(|s| !s.is_empty())
-        .collect()
-}
 
 fn filter_by_extension(node: &mut Node, exts: &[String]) {
     if !node.is_dir {
@@ -470,29 +427,6 @@ fn load_file_content_with_limits(
     (truncated_content, info)
 }
 
-fn generate_truncation_message(info: &TruncationInfo) -> String {
-    match info.truncate_type {
-        TruncateType::Lines => {
-            format!(
-                "[Content truncated: showing first {} of {} lines]",
-                info.shown_lines, info.total_lines
-            )
-        }
-        TruncateType::Bytes => {
-            format!(
-                "[Content truncated: showing first {} of {} bytes]",
-                info.shown_bytes, info.total_bytes
-            )
-        }
-        TruncateType::Both => {
-            format!(
-                "[Content truncated: showing first {} of {} lines, {} of {} bytes]",
-                info.shown_lines, info.total_lines, info.shown_bytes, info.total_bytes
-            )
-        }
-        TruncateType::None => "[Content truncated]".to_string(),
-    }
-}
 
 
 #[cfg(test)]
@@ -501,14 +435,6 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    #[test]
-    fn test_parse_ext_list() {
-        let exts = parse_ext_list("go,py,.rs");
-        assert_eq!(exts, vec![".go", ".py", ".rs"]);
-
-        let exts = parse_ext_list(".md, .txt, rs");
-        assert_eq!(exts, vec![".md", ".txt", ".rs"]);
-    }
 
     #[test]
     fn test_detect_lang() {
@@ -519,34 +445,6 @@ mod tests {
         assert!(detect_lang("unknown.xyz").is_none());
     }
 
-    #[test]
-    fn test_generate_truncation_message() {
-        let info = TruncationInfo {
-            truncated: true,
-            total_lines: 100,
-            total_bytes: 5000,
-            shown_lines: 50,
-            shown_bytes: 2500,
-            truncate_type: TruncateType::Lines,
-        };
-        assert_eq!(
-            generate_truncation_message(&info),
-            "[Content truncated: showing first 50 of 100 lines]"
-        );
-
-        let info = TruncationInfo {
-            truncated: true,
-            total_lines: 100,
-            total_bytes: 5000,
-            shown_lines: 50,
-            shown_bytes: 2500,
-            truncate_type: TruncateType::Both,
-        };
-        assert_eq!(
-            generate_truncation_message(&info),
-            "[Content truncated: showing first 50 of 100 lines, 2500 of 5000 bytes]"
-        );
-    }
 
     #[test]
     fn test_build_tree() -> io::Result<()> {
