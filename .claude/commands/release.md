@@ -1,18 +1,80 @@
 # Release Process
 
-## 0. Update Version
+This command handles the complete release process for tree2md.
 
-- version in Cargo.toml
-- VERSION constant in src/main.rs
-- CHANGELOG.md
+## Steps I will perform:
 
-## 1. Local Validation & Tag & Push
-```bash
-./scripts/release.sh vX.Y.Z
-```
+1. **Determine Version**
+   - Review recent changes and suggest appropriate version bump (patch/minor/major)
+   - Follow semantic versioning guidelines
 
-## 2. Verify Results (Automatic)
-- GitHub Actions: Release workflow starts
-- Binaries for each OS attached to Release
-- Published to crates.io
-- Check GitHub Release and crates.io when successful
+2. **Generate Release Description**
+   - Analyze commits since last release
+   - Create comprehensive release notes with:
+     - Key features and improvements
+     - Bug fixes
+     - Breaking changes (if any)
+     - Credits and acknowledgments
+
+3. **Update Version Files**
+   - Update `Cargo.toml` version
+   - Update `VERSION` constant in `src/main.rs`
+   - Update `CHANGELOG.md` with release notes
+
+4. **Validation**
+   - Run `cargo fmt -- --check`
+   - Run `cargo clippy -- -D warnings`
+   - Run `cargo test`
+   - Run `cargo build --release`
+   - Verify version consistency across files
+
+5. **Commit Version Changes**
+   ```bash
+   git add -A
+   git commit -m "chore: bump version to vX.Y.Z
+
+   <release notes here>
+   
+   🤖 Generated with [Claude Code](https://claude.ai/code)
+   
+   Co-Authored-By: Claude <noreply@anthropic.com>"
+   ```
+
+6. **Create and Push Tag**
+   ```bash
+   git tag -a vX.Y.Z -m "<comprehensive release description>"
+   git push origin main
+   git push origin vX.Y.Z
+   ```
+
+7. **Monitor Release**
+   - Watch GitHub Actions workflow
+   - Verify successful build for all platforms
+   - Confirm publication to crates.io
+   - Check GitHub Release page
+
+## What happens after tagging:
+
+GitHub Actions will automatically:
+- Build binaries for Linux, macOS, and Windows
+- Create GitHub Release with artifacts
+- Publish to crates.io
+- Generate SHA256 checksums
+
+## Requirements:
+
+- You must be on the `main` branch
+- Working directory must be clean
+- All tests must pass
+- Version must follow semantic versioning (X.Y.Z)
+
+## Usage:
+
+Just run `/release` and I will:
+1. Analyze recent changes
+2. Suggest version number
+3. Generate release notes
+4. Handle the entire process
+5. Monitor the deployment
+
+You can review and approve each step before proceeding.

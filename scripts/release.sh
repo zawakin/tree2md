@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# DEPRECATED: This script is being phased out in favor of the Claude command /release
+# which provides better release note generation and a more comprehensive process.
+# 
 # Usage: ./scripts/release.sh vX.Y.Z
 # Non-interactive. Performs validation -> tag -> push.
 # Prerequisites:
