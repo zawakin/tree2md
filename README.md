@@ -108,7 +108,7 @@ tree2md -f "src/**/*.rs" -c --max-lines 100
 
 ## Example Output
 
-```markdown
+````markdown
 ## File Structure
 - my_project/
   - src/
@@ -132,7 +132,7 @@ pub fn add(a: i32, b: i32) -> i32 {
     a + b
 }
 ```
-```
+````
 
 ## Supported Languages
 
