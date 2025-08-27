@@ -41,6 +41,27 @@ Available for:
 
 ## Usage
 
+### Common Use Cases
+
+```bash
+# Copy project structure to clipboard for documentation (macOS)
+tree2md src -c | pbcopy
+
+# Copy project structure to clipboard (Linux)
+tree2md src -c | xclip -selection clipboard
+
+# Copy project structure to clipboard (Windows)
+tree2md src -c | clip
+
+# Generate README documentation
+tree2md src -c > PROJECT_STRUCTURE.md
+
+# Quick overview without file contents
+tree2md src | pbcopy
+```
+
+### All Options
+
 ```bash
 # Basic usage - output tree structure of current directory
 tree2md
