@@ -1,4 +1,4 @@
-# tree2md (Rust Version)
+# tree2md
 
 A command-line tool that scans directories and outputs their structure in Markdown format. Can optionally include file contents as code blocks with syntax highlighting.
 
@@ -131,14 +131,6 @@ The tool automatically detects and applies syntax highlighting for:
 - JSON (.json)
 - Markdown (.md)
 
-## Differences from Go Version
-
-This Rust implementation maintains full compatibility with the original Go version while adding:
-- Better performance through Rust's zero-cost abstractions
-- More robust gitignore pattern matching using the `ignore` crate
-- Cross-platform binary distribution
-- Available via cargo for easy installation
-
 ## Building from Source
 
 Requirements:
@@ -167,7 +159,3 @@ MIT License
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Original Go Version
-
-The original Go version is available at [github.com/zawakin/tree2md](https://github.com/zawakin/tree2md)
