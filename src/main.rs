@@ -13,7 +13,7 @@ use utils::{
     compile_patterns, generate_truncation_message, parse_ext_list, TruncateType, TruncationInfo,
 };
 
-const VERSION: &str = "0.3.1";
+const VERSION: &str = "0.3.2";
 
 #[derive(Debug)]
 struct Node {
