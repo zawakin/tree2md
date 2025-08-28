@@ -737,7 +737,13 @@ fn filter_by_extension(node: &mut Node, extensions: &[String]) {
 
 fn print_tree(node: &Node, prefix: &str) {
     if !node.name.is_empty() {
-        println!("{}- {}", prefix, node.name);
+        // Add trailing slash for directories
+        let display_name = if node.is_dir {
+            format!("{}/", node.name)
+        } else {
+            node.name.clone()
+        };
+        println!("{}- {}", prefix, display_name);
     }
 
     for child in &node.children {
@@ -751,7 +757,13 @@ fn print_tree_with_options(node: &Node, prefix: &str, args: &Args, show_root: bo
         // Show root with custom label if provided
         let root_name = args.root_label.as_deref().unwrap_or(&node.name);
         if !root_name.is_empty() {
-            println!("{}- {}", prefix, root_name);
+            // Add trailing slash for root directory
+            let display_name = if node.is_dir {
+                format!("{}/", root_name)
+            } else {
+                root_name.to_string()
+            };
+            println!("{}- {}", prefix, display_name);
         }
         for child in &node.children {
             let child_prefix = format!("{}  ", prefix);
