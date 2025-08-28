@@ -7,14 +7,14 @@ use glob::Pattern;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
 
 use language::detect_lang;
 use stdin::{find_common_ancestor, process_stdin_input, StdinConfig};
 use utils::{
-    calculate_display_path, compile_patterns, generate_truncation_message, parse_ext_list,
-    TruncateType, TruncationInfo,
+    calculate_display_path, compile_patterns, format_size, generate_truncation_message, 
+    parse_ext_list, TruncateType, TruncationInfo,
 };
 
 const VERSION: &str = "0.5.0";
@@ -221,12 +221,12 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         keep_order: args.keep_order,
     };
 
-    // Store original inputs for display-path input mode
-    let mut original_inputs = HashMap::new();
-
-    // Process stdin input
-    let file_paths = match process_stdin_input(&stdin_config) {
-        Ok(paths) => paths,
+    // Process stdin input and get both canonical paths and original inputs
+    let stdin::StdinResult {
+        canonical_paths: file_paths,
+        original_map: original_inputs,
+    } = match process_stdin_input(&stdin_config) {
+        Ok(result) => result,
         Err(e) => {
             eprintln!("Error: {}", e);
             match e {
@@ -237,46 +237,6 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
             }
         }
     };
-
-    // Read stdin again to get original inputs if needed
-    if matches!(args.display_path, DisplayPathMode::Input) {
-        let stdin = io::stdin();
-        let reader = stdin.lock();
-
-        if args.stdin0 {
-            use std::io::BufRead;
-            for line in reader.split(b'\0').flatten() {
-                if let Ok(line_str) = String::from_utf8(line) {
-                    let line_trimmed = line_str.trim();
-                    if !line_trimmed.is_empty() {
-                        let full_path = if Path::new(line_trimmed).is_relative() {
-                            stdin_config.base_dir.join(line_trimmed)
-                        } else {
-                            PathBuf::from(line_trimmed)
-                        };
-                        if let Ok(canonical) = full_path.canonicalize() {
-                            original_inputs.insert(canonical, line_trimmed.to_string());
-                        }
-                    }
-                }
-            }
-        } else {
-            use std::io::BufRead;
-            for line in reader.lines().map_while(Result::ok) {
-                let line_trimmed = line.trim();
-                if !line_trimmed.is_empty() {
-                    let full_path = if Path::new(line_trimmed).is_relative() {
-                        stdin_config.base_dir.join(line_trimmed)
-                    } else {
-                        PathBuf::from(line_trimmed)
-                    };
-                    if let Ok(canonical) = full_path.canonicalize() {
-                        original_inputs.insert(canonical, line_trimmed.to_string());
-                    }
-                }
-            }
-        }
-    }
 
     let mut all_paths = file_paths;
 
@@ -572,15 +532,22 @@ fn print_file_content_with_display(path: &Path, display_path: &Path, args: &Args
 
     if truncation_info.truncated {
         let message = generate_truncation_message(&truncation_info);
-        // Print truncation message as a comment in the appropriate language
-        if let Some(l) = lang {
-            println!("{}", l.to_comment(&message));
+        // For JSON files, print truncation message outside code block to avoid invalid syntax
+        if lang.map(|l| l.name == "json").unwrap_or(false) {
+            println!("```");
+            println!("*{}*", message);
         } else {
-            println!("// {}", message);
+            // Print truncation message as a comment in the appropriate language
+            if let Some(l) = lang {
+                println!("{}", l.to_comment(&message));
+            } else {
+                println!("// {}", message);
+            }
+            println!("```");
         }
+    } else {
+        println!("```");
     }
-
-    println!("```");
 }
 
 fn load_gitignore(dir: &str) -> io::Result<Option<Gitignore>> {
@@ -813,6 +780,7 @@ fn load_file_content_with_limits(
     truncate_bytes: Option<usize>,
     max_lines: Option<usize>,
 ) -> (String, TruncationInfo) {
+    // First, try to detect if it's a binary file by reading first chunk
     let mut file = match fs::File::open(path) {
         Ok(f) => f,
         Err(e) => {
@@ -830,10 +798,51 @@ fn load_file_content_with_limits(
         }
     };
 
+    // Read first 8KB to detect binary content
+    let mut buffer = vec![0; 8192.min(file.metadata().map(|m| m.len() as usize).unwrap_or(8192))];
+    let bytes_read = match file.read(&mut buffer) {
+        Ok(n) => n,
+        Err(e) => {
+            return (
+                format!("Error reading file: {}", e),
+                TruncationInfo {
+                    truncated: false,
+                    total_lines: 0,
+                    total_bytes: 0,
+                    shown_lines: 0,
+                    shown_bytes: 0,
+                    truncate_type: TruncateType::None,
+                },
+            );
+        }
+    };
+    buffer.truncate(bytes_read);
+
+    // Check for binary content (NULL bytes or other control characters)
+    let is_binary = buffer.iter().any(|&b| b == 0 || (b < 32 && b != 9 && b != 10 && b != 13));
+    
+    if is_binary {
+        let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+        return (
+            format!("Binary file ({})", format_size(file_size)),
+            TruncationInfo {
+                truncated: false,
+                total_lines: 0,
+                total_bytes: file_size as usize,
+                shown_lines: 0,
+                shown_bytes: 0,
+                truncate_type: TruncateType::None,
+            },
+        );
+    }
+
+    // Reset file position and read as text
+    file.seek(std::io::SeekFrom::Start(0)).ok();
+    
     let mut full_content = String::new();
     if let Err(e) = file.read_to_string(&mut full_content) {
         return (
-            format!("Error reading file: {}", e),
+            format!("Error reading file as text: {}", e),
             TruncationInfo {
                 truncated: false,
                 total_lines: 0,
@@ -874,12 +883,22 @@ fn load_file_content_with_limits(
         // Check byte limit
         if let Some(max) = truncate_bytes {
             if shown_bytes + line_bytes > max {
-                // Add partial line if there's room
+                // Add partial line if there's room, respecting UTF-8 boundaries
                 let remaining = max.saturating_sub(shown_bytes);
                 if remaining > 0 {
-                    let partial: String = line.chars().take(remaining).collect();
-                    result.push_str(&partial);
-                    shown_bytes += partial.len();
+                    // Find safe UTF-8 boundary within remaining bytes
+                    let mut safe_cut = 0;
+                    for (idx, _) in line_with_newline.char_indices() {
+                        if idx <= remaining {
+                            safe_cut = idx;
+                        } else {
+                            break;
+                        }
+                    }
+                    if safe_cut > 0 {
+                        result.push_str(&line_with_newline[..safe_cut]);
+                        shown_bytes += safe_cut;
+                    }
                 }
                 truncated = true;
                 truncate_type = if max_lines.is_some() {

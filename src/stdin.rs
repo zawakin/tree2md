@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -60,17 +60,36 @@ impl From<io::Error> for StdinError {
 
 pub type Result<T> = std::result::Result<T, StdinError>;
 
-pub fn process_stdin_input(config: &StdinConfig) -> Result<Vec<PathBuf>> {
-    let raw_paths = if config.null_delimited {
-        read_null_delimited()?
+#[derive(Debug)]
+pub struct StdinResult {
+    pub canonical_paths: Vec<PathBuf>,
+    pub original_map: HashMap<PathBuf, String>,
+}
+
+pub fn process_stdin_input(config: &StdinConfig) -> Result<StdinResult> {
+    let raw_inputs = if config.null_delimited {
+        read_null_delimited_strings()?
     } else {
-        read_line_delimited()?
+        read_line_delimited_strings()?
     };
+
+    process_stdin_input_from_raw(&raw_inputs, config)
+}
+
+pub fn process_stdin_input_from_raw(
+    raw_inputs: &[String],
+    config: &StdinConfig,
+) -> Result<StdinResult> {
+    let mut original_map = HashMap::new();
 
     let mut paths = Vec::new();
     let mut warnings = Vec::new();
 
-    for raw_path in raw_paths {
+    for raw_input in raw_inputs {
+        let raw_path = PathBuf::from(raw_input.trim());
+        if raw_path.as_os_str().is_empty() {
+            continue;
+        }
         let path = if raw_path.is_absolute() {
             raw_path
         } else {
@@ -79,7 +98,11 @@ pub fn process_stdin_input(config: &StdinConfig) -> Result<Vec<PathBuf>> {
 
         // Canonicalize path (resolve symlinks)
         let real_path = match fs::canonicalize(&path) {
-            Ok(p) => p,
+            Ok(p) => {
+                // Store original input for display-path input mode
+                original_map.insert(p.clone(), raw_input.clone());
+                p
+            }
             Err(_) => {
                 warnings.push(format!("Warning: File not found: {}", path.display()));
                 continue;
@@ -131,41 +154,41 @@ pub fn process_stdin_input(config: &StdinConfig) -> Result<Vec<PathBuf>> {
         return Err(StdinError::NoValidFiles);
     }
 
-    Ok(result)
+    Ok(StdinResult {
+        canonical_paths: result,
+        original_map,
+    })
 }
 
-fn read_line_delimited() -> io::Result<Vec<PathBuf>> {
+fn read_line_delimited_strings() -> io::Result<Vec<String>> {
     let stdin = io::stdin();
     let reader = BufReader::new(stdin.lock());
-    let mut paths = Vec::new();
+    let mut inputs = Vec::new();
 
     for line in reader.lines() {
         let line = line?;
         let trimmed = line.trim();
         if !trimmed.is_empty() {
-            paths.push(PathBuf::from(trimmed));
+            inputs.push(trimmed.to_string());
         }
     }
 
-    Ok(paths)
+    Ok(inputs)
 }
 
-fn read_null_delimited() -> io::Result<Vec<PathBuf>> {
+fn read_null_delimited_strings() -> io::Result<Vec<String>> {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer)?;
 
-    let paths: Vec<PathBuf> = buffer
+    let inputs: Vec<String> = buffer
         .split(|&b| b == 0)
         .filter(|s| !s.is_empty())
-        .map(|bytes| {
-            let s = String::from_utf8_lossy(bytes);
-            PathBuf::from(s.into_owned())
-        })
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
         .collect();
 
-    Ok(paths)
+    Ok(inputs)
 }
 
 fn is_within(path: &Path, root: &Path) -> io::Result<bool> {

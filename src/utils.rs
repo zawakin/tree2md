@@ -37,7 +37,6 @@ pub fn compile_patterns(pattern_strings: &[String]) -> io::Result<Vec<Pattern>> 
 }
 
 /// Format bytes into human-readable size
-#[allow(dead_code)] // Will be used for file size display feature
 pub fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
     let mut size = bytes as f64;
