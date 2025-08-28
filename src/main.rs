@@ -20,7 +20,7 @@ use utils::{
     parse_ext_list, TruncateType, TruncationInfo,
 };
 
-const VERSION: &str = "0.5.0";
+const VERSION: &str = "0.6.0";
 
 #[derive(Debug, Clone, ValueEnum)]
 enum StdinMode {

@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-08-28
+### Added
+- Comprehensive gitignore support using `ignore::WalkBuilder`
+  - Support for nested `.gitignore` files in subdirectories
+  - Support for `.git/info/exclude` patterns
+  - Support for global gitignore configuration
+  - Support for `.ignore` files
+  - Improved performance with efficient pattern matching
+- Binary file detection and handling
+  - Automatically detect binary files (NULL bytes and control characters)
+  - Display "Binary file (size)" with human-readable sizes (B, KB, MB, GB)
+  - Prevent garbled output from binary files
+
+### Changed
+- Directory names now display with trailing `/` for clearer distinction
+- Improved Cargo.toml description to match README tagline
+- Enhanced gitignore processing with better caching and performance
+
+### Fixed
+- Critical stdin double-read issue when using `--display-path input`
+  - Introduced `StdinResult` struct to capture both canonical paths and original inputs
+  - Process stdin only once and maintain proper mapping
+- Multi-byte character handling in byte truncation
+  - Use `char_indices()` to find safe UTF-8 boundaries
+  - Prevent character corruption at truncation points
+- JSON truncation annotations
+  - Print truncation message outside code block for JSON files
+  - JSON doesn't support comments, avoiding syntax errors
+- GitHub Actions release workflow to include CHANGELOG in release notes
+
 ## [0.5.0] - 2025-08-28
 ### Changed
 - **BREAKING**: Removed file name comments from code blocks

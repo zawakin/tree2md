@@ -1,9 +1,9 @@
 [package]
 name = "tree2md"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["zawakin"]
-description = "A CLI tool that scans directories and outputs their structure in Markdown format"
+description = "Like the tree command, but outputs in Markdown. Optionally embed file contents as code blocks."
 license = "MIT"
 repository = "https://github.com/zawakin/tree2md"
 homepage = "https://github.com/zawakin/tree2md"
