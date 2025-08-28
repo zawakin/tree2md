@@ -4,6 +4,7 @@ mod filter;
 mod fs_tree;
 mod input;
 mod language;
+mod matcher;
 mod util;
 
 use clap::Parser;

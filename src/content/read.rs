@@ -2,142 +2,100 @@ use crate::cli::Args;
 use crate::language::{detect_lang, to_comment};
 use crate::util::format::{format_size, generate_truncation_message, TruncateType, TruncationInfo};
 use std::fs;
-use std::io::{Read, Seek};
+use std::io::{self, BufRead, Read, Seek};
 use std::path::Path;
 
-/// Size of chunk to read for binary file detection (8KB)
 const PROBE_BYTES: usize = 8192;
+
+pub struct ReadPayload {
+    pub content: String,
+    pub info: TruncationInfo,
+}
+
+#[derive(Debug)]
+pub enum ReadError {
+    Io(io::Error),
+    Binary(u64),
+    NonUtf8,
+}
+
+impl std::fmt::Display for ReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadError::Io(e) => write!(f, "{}", e),
+            ReadError::Binary(sz) => write!(f, "Binary file ({})", format_size(*sz)),
+            ReadError::NonUtf8 => write!(f, "File is not valid UTF-8 text"),
+        }
+    }
+}
+impl std::error::Error for ReadError {}
+impl From<io::Error> for ReadError {
+    fn from(e: io::Error) -> Self {
+        ReadError::Io(e)
+    }
+}
 
 pub fn load_file_content_with_limits(
     path: &Path,
     truncate_bytes: Option<usize>,
     max_lines: Option<usize>,
-) -> (String, TruncationInfo) {
-    // First, try to detect if it's a binary file by reading first chunk
-    let mut file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) => {
-            return (
-                format!("Error reading file: {}", e),
-                TruncationInfo {
-                    truncated: false,
-                    total_lines: 0,
-                    total_bytes: 0,
-                    shown_lines: 0,
-                    shown_bytes: 0,
-                    truncate_type: TruncateType::None,
-                },
-            );
-        }
-    };
+) -> Result<ReadPayload, ReadError> {
+    let mut file = fs::File::open(path).map_err(ReadError::Io)?;
 
-    // Read first chunk to detect binary content
-    let cap = PROBE_BYTES.min(
-        file.metadata()
-            .map(|m| m.len() as usize)
-            .unwrap_or(PROBE_BYTES),
-    );
-    let mut buffer = vec![0; cap];
-    let bytes_read = match file.read(&mut buffer) {
-        Ok(n) => n,
-        Err(e) => {
-            return (
-                format!("Error reading file: {}", e),
-                TruncationInfo {
-                    truncated: false,
-                    total_lines: 0,
-                    total_bytes: 0,
-                    shown_lines: 0,
-                    shown_bytes: 0,
-                    truncate_type: TruncateType::None,
-                },
-            );
-        }
-    };
-    buffer.truncate(bytes_read);
+    let meta_len = file.metadata().ok().map(|m| m.len()).unwrap_or(0);
+    let mut probe = vec![0u8; PROBE_BYTES.min(meta_len as usize).max(0)];
+    let n = file.read(&mut probe).map_err(ReadError::Io)?;
+    probe.truncate(n);
 
-    // Check for binary content (NULL bytes or other control characters)
-    let is_binary = buffer
+    let is_binary = probe
         .iter()
         .any(|&b| b == 0 || (b < 32 && b != 9 && b != 10 && b != 13));
 
     if is_binary {
-        let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
-        return (
-            format!("Binary file ({})", format_size(file_size)),
-            TruncationInfo {
-                truncated: false,
-                total_lines: 0,
-                total_bytes: file_size as usize,
-                shown_lines: 0,
-                shown_bytes: 0,
-                truncate_type: TruncateType::None,
-            },
-        );
+        return Err(ReadError::Binary(meta_len));
     }
 
-    // Reset file position and read as text
     file.seek(std::io::SeekFrom::Start(0)).ok();
+    let mut rdr = io::BufReader::new(file);
 
-    let mut full_content = String::new();
-    if let Err(e) = file.read_to_string(&mut full_content) {
-        return (
-            format!("Error reading file as text: {}", e),
-            TruncationInfo {
-                truncated: false,
-                total_lines: 0,
-                total_bytes: 0,
-                shown_lines: 0,
-                shown_bytes: 0,
-                truncate_type: TruncateType::None,
-            },
-        );
-    }
+    let total_bytes = meta_len as usize;
+    let mut total_lines: usize = 0;
 
-    let total_bytes = full_content.len();
-    let total_lines = full_content.lines().count();
+    let mut result_bytes: Vec<u8> = Vec::new();
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
 
+    let mut shown_lines = 0usize;
+    let mut shown_bytes = 0usize;
     let mut truncated = false;
     let mut truncate_type = TruncateType::None;
-    let mut result = String::new();
-    let mut shown_lines = 0;
-    let mut shown_bytes = 0;
 
-    for line in full_content.lines() {
-        // Check line limit
-        if let Some(max) = max_lines {
-            if shown_lines >= max {
-                truncated = true;
-                truncate_type = if truncate_bytes.is_some() {
-                    TruncateType::Both
-                } else {
-                    TruncateType::Lines
-                };
-                break;
-            }
+    loop {
+        buf.clear();
+        let read_n = rdr.read_until(b'\n', &mut buf).map_err(ReadError::Io)?;
+        if read_n == 0 {
+            break;
         }
 
-        let line_with_newline = format!("{}\n", line);
-        let line_bytes = line_with_newline.len();
+        total_lines = total_lines.saturating_add(1);
 
-        // Check byte limit
-        if let Some(max) = truncate_bytes {
-            if shown_bytes + line_bytes > max {
-                // Add partial line if there's room, respecting UTF-8 boundaries
-                let remaining = max.saturating_sub(shown_bytes);
+        if truncated {
+            continue;
+        }
+
+        if let Some(max_b) = truncate_bytes {
+            if shown_bytes + buf.len() > max_b {
+                let remaining = max_b.saturating_sub(shown_bytes);
                 if remaining > 0 {
-                    // Find safe UTF-8 boundary within remaining bytes
-                    let mut safe_cut = 0;
-                    for (idx, _) in line_with_newline.char_indices() {
-                        if idx <= remaining {
-                            safe_cut = idx;
-                        } else {
-                            break;
-                        }
+                    let mut cut = remaining.min(buf.len());
+                    while cut > 0 && std::str::from_utf8(&buf[..cut]).is_err() {
+                        cut -= 1;
                     }
-                    if safe_cut > 0 {
-                        result.push_str(&line_with_newline[..safe_cut]);
-                        shown_bytes += safe_cut;
+                    if cut > 0 {
+                        result_bytes.extend_from_slice(&buf[..cut]);
+                        shown_bytes += cut;
+                        if buf[..cut].contains(&b'\n') {
+                            shown_lines = shown_lines.saturating_add(1);
+                        }
                     }
                 }
                 truncated = true;
@@ -146,18 +104,36 @@ pub fn load_file_content_with_limits(
                 } else {
                     TruncateType::Bytes
                 };
-                break;
+                continue;
             }
         }
 
-        result.push_str(&line_with_newline);
+        if let Some(max_l) = max_lines {
+            if shown_lines >= max_l {
+                truncated = true;
+                truncate_type = if truncate_bytes.is_some() {
+                    TruncateType::Both
+                } else {
+                    TruncateType::Lines
+                };
+                continue;
+            }
+        }
+
+        result_bytes.extend_from_slice(&buf);
+        shown_bytes += buf.len();
         shown_lines += 1;
-        shown_bytes += line_bytes;
     }
 
-    (
-        result,
-        TruncationInfo {
+    let mut content = String::from_utf8(result_bytes).map_err(|_| ReadError::NonUtf8)?;
+
+    if !content.ends_with('\n') {
+        content.push('\n');
+    }
+
+    Ok(ReadPayload {
+        content,
+        info: TruncationInfo {
             truncated,
             total_lines,
             total_bytes,
@@ -165,49 +141,47 @@ pub fn load_file_content_with_limits(
             shown_bytes,
             truncate_type,
         },
-    )
+    })
 }
 
 pub fn print_file_content_with_display(path: &Path, display_path: &Path, args: &Args) {
-    let (content, truncation_info) =
-        load_file_content_with_limits(path, args.truncate, args.max_lines);
+    match load_file_content_with_limits(path, args.truncate, args.max_lines) {
+        Ok(payload) => {
+            let file_name = path
+                .file_name()
+                .unwrap_or_else(|| std::ffi::OsStr::new(""))
+                .to_string_lossy();
+            let lang = detect_lang(&file_name);
+            let lang_name = lang.map(|l| l.name).unwrap_or("");
 
-    // Detect language
-    let file_name = path
-        .file_name()
-        .unwrap_or_else(|| std::ffi::OsStr::new(""))
-        .to_string_lossy();
-    let lang = detect_lang(&file_name);
+            println!("\n### {}", display_path.display());
+            println!("```{}", lang_name);
+            print!("{}", payload.content);
 
-    let lang_name = lang.map(|l| l.name).unwrap_or("");
-
-    // Print markdown code block
-    println!("\n### {}", display_path.display());
-    println!("```{}", lang_name);
-
-    print!("{}", content);
-
-    // Ensure newline at end
-    if !content.ends_with('\n') {
-        println!();
-    }
-
-    if truncation_info.truncated {
-        let message = generate_truncation_message(&truncation_info);
-        // For JSON files, print truncation message outside code block to avoid invalid syntax
-        if lang.map(|l| l.name == "json").unwrap_or(false) {
-            println!("```");
-            println!("*{}*", message);
-        } else {
-            // Print truncation message as a comment in the appropriate language
-            if let Some(l) = lang {
-                println!("{}", to_comment(l, &message));
+            if payload.info.truncated {
+                let message = generate_truncation_message(&payload.info);
+                if lang.map(|l| l.name == "json").unwrap_or(false) {
+                    println!("```");
+                    println!("*{}*", message);
+                } else {
+                    if let Some(l) = lang {
+                        println!("{}", to_comment(l, &message));
+                    } else {
+                        println!("// {}", message);
+                    }
+                    println!("```");
+                }
             } else {
-                println!("// {}", message);
+                println!("```");
             }
-            println!("```");
         }
-    } else {
-        println!("```");
+        Err(ReadError::Binary(sz)) => {
+            println!("\n### {}", display_path.display());
+            println!("*Binary file ({}).*", format_size(sz));
+        }
+        Err(e) => {
+            println!("\n### {}", display_path.display());
+            println!("*Failed to read content: {}*", e);
+        }
     }
 }

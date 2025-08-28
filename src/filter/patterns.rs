@@ -1,16 +1,28 @@
 use glob::{MatchOptions, Pattern};
 use std::io;
 
+/// Normalize a glob pattern to be recursive if it doesn't contain path separators
+/// For example: "*.rs" becomes "**/*.rs" to match files at any depth
+fn normalize_pattern(pattern: &str) -> String {
+    if !pattern.contains('/') {
+        format!("**/{}", pattern)
+    } else {
+        pattern.to_string()
+    }
+}
+
 /// Compile glob patterns from strings
 pub fn compile_patterns(pattern_strings: &[String]) -> io::Result<Vec<Pattern>> {
     let mut patterns = Vec::new();
     for pattern_str in pattern_strings {
-        match Pattern::new(pattern_str) {
+        // Normalize patterns to be recursive by default
+        let normalized = normalize_pattern(pattern_str);
+        match Pattern::new(&normalized) {
             Ok(pattern) => patterns.push(pattern),
             Err(e) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("Invalid glob pattern '{}': {}", pattern_str, e),
+                    format!("Invalid glob pattern '{}': {}", normalized, e),
                 ));
             }
         }
@@ -63,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_single_star_pattern() {
-        // Test that '*.rs' only matches files in the current directory
+        // Test that '*.rs' now matches files recursively (after normalization to '**/*.rs')
         let patterns = compile_patterns(&["*.rs".to_string()]).unwrap();
 
         // Should match files in root
@@ -80,18 +92,18 @@ mod tests {
             "Should match test.rs"
         );
 
-        // Should NOT match files in subdirectories
+        // Should NOW match files in subdirectories (recursive behavior)
         assert!(
-            !path_matches_any_pattern("src/main.rs", &patterns),
-            "Should NOT match src/main.rs"
+            path_matches_any_pattern("src/main.rs", &patterns),
+            "Should match src/main.rs (recursive)"
         );
         assert!(
-            !path_matches_any_pattern("module/lib.rs", &patterns),
-            "Should NOT match module/lib.rs"
+            path_matches_any_pattern("module/lib.rs", &patterns),
+            "Should match module/lib.rs (recursive)"
         );
         assert!(
-            !path_matches_any_pattern("a/b/c/test.rs", &patterns),
-            "Should NOT match deeply nested"
+            path_matches_any_pattern("a/b/c/test.rs", &patterns),
+            "Should match deeply nested (recursive)"
         );
 
         // Should NOT match non-.rs files
@@ -137,10 +149,10 @@ mod tests {
 
     #[test]
     fn test_directory_specific_pattern() {
-        // Test patterns like 'src/*.rs'
+        // Test patterns like 'src/*.rs' - these should NOT be normalized
         let patterns = compile_patterns(&["src/*.rs".to_string()]).unwrap();
 
-        // Should match files in src/ directory
+        // Should match files in src/ directory only
         assert!(
             path_matches_any_pattern("src/main.rs", &patterns),
             "Should match src/main.rs"
@@ -160,10 +172,10 @@ mod tests {
             "Should NOT match root lib.rs"
         );
 
-        // Should NOT match files in nested directories
+        // Should NOT match files in nested directories (pattern has '/' so not normalized)
         assert!(
             !path_matches_any_pattern("src/module/test.rs", &patterns),
-            "Should NOT match src/module/test.rs"
+            "Should NOT match src/module/test.rs (not recursive)"
         );
         assert!(
             !path_matches_any_pattern("other/main.rs", &patterns),
@@ -175,33 +187,33 @@ mod tests {
     fn test_multiple_patterns() {
         // Test multiple patterns together
         let patterns = compile_patterns(&[
-            "*.md".to_string(),
-            "src/*.rs".to_string(),
-            "test/**/*.txt".to_string(),
+            "*.md".to_string(),        // Will be normalized to **/*.md
+            "src/*.rs".to_string(),     // Will NOT be normalized (contains /)
+            "test/**/*.txt".to_string(), // Already recursive
         ])
         .unwrap();
 
-        // First pattern: *.md in root
+        // First pattern: *.md now matches recursively
         assert!(
             path_matches_any_pattern("README.md", &patterns),
             "Should match README.md"
         );
         assert!(
-            !path_matches_any_pattern("docs/README.md", &patterns),
-            "Should NOT match docs/README.md"
+            path_matches_any_pattern("docs/README.md", &patterns),
+            "Should NOW match docs/README.md (recursive)"
         );
 
-        // Second pattern: src/*.rs
+        // Second pattern: src/*.rs (not normalized since it has /)
         assert!(
             path_matches_any_pattern("src/main.rs", &patterns),
             "Should match src/main.rs"
         );
         assert!(
             !path_matches_any_pattern("src/module/lib.rs", &patterns),
-            "Should NOT match src/module/lib.rs"
+            "Should NOT match src/module/lib.rs (not recursive)"
         );
 
-        // Third pattern: test/**/*.txt
+        // Third pattern: test/**/*.txt (already recursive)
         assert!(
             path_matches_any_pattern("test/data.txt", &patterns),
             "Should match test/data.txt"
@@ -212,7 +224,57 @@ mod tests {
         );
         assert!(
             !path_matches_any_pattern("data.txt", &patterns),
-            "Should NOT match root data.txt"
+            "Should NOT match root data.txt (pattern requires test/ prefix)"
+        );
+    }
+
+    #[test]
+    fn test_pattern_normalization() {
+        // Test that patterns without '/' are normalized to be recursive
+        
+        // Simple wildcard patterns should become recursive
+        let patterns = compile_patterns(&["*.rs".to_string()]).unwrap();
+        assert!(
+            path_matches_any_pattern("main.rs", &patterns),
+            "*.rs should match root files"
+        );
+        assert!(
+            path_matches_any_pattern("src/lib.rs", &patterns),
+            "*.rs should match nested files after normalization"
+        );
+        assert!(
+            path_matches_any_pattern("deep/nested/file.rs", &patterns),
+            "*.rs should match deeply nested files"
+        );
+        
+        // Literal filename patterns should also become recursive
+        let patterns = compile_patterns(&["foo.rs".to_string()]).unwrap();
+        assert!(
+            path_matches_any_pattern("foo.rs", &patterns),
+            "foo.rs should match in root"
+        );
+        assert!(
+            path_matches_any_pattern("src/foo.rs", &patterns),
+            "foo.rs should match in subdirectory"
+        );
+        assert!(
+            !path_matches_any_pattern("bar.rs", &patterns),
+            "foo.rs should not match bar.rs"
+        );
+        
+        // Patterns with '/' should NOT be normalized
+        let patterns = compile_patterns(&["src/*.rs".to_string()]).unwrap();
+        assert!(
+            path_matches_any_pattern("src/main.rs", &patterns),
+            "src/*.rs should match files in src/"
+        );
+        assert!(
+            !path_matches_any_pattern("src/nested/main.rs", &patterns),
+            "src/*.rs should NOT match nested files (not normalized)"
+        );
+        assert!(
+            !path_matches_any_pattern("main.rs", &patterns),
+            "src/*.rs should NOT match root files"
         );
     }
 
@@ -245,8 +307,8 @@ mod tests {
             "Should match 'my file.rs'"
         );
         assert!(
-            !path_matches_any_pattern("dir/my file.rs", &patterns),
-            "Should NOT match 'dir/my file.rs'"
+            path_matches_any_pattern("dir/my file.rs", &patterns),
+            "Should NOW match 'dir/my file.rs' (recursive)"
         );
     }
 }

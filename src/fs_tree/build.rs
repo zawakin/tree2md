@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_single_wildcard_pattern() {
-        // Test that '*.rs' pattern works correctly (single asterisk)
+        // Test that '*.rs' pattern now works recursively (after normalization)
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
 
@@ -420,18 +420,29 @@ mod tests {
             "test.txt should not be found with '*.rs' pattern"
         );
 
-        // src directory should be removed as it has no matching files
-        // '*.rs' only matches files in the root directory, not nested ones
+        // src directory should NOW be present with the .rs file inside
+        // '*.rs' now matches files recursively after normalization
         let src = tree.children.iter().find(|n| n.name == "src");
         assert!(
-            src.is_none(),
-            "src directory should be removed when it has no matching files"
+            src.is_some(),
+            "src directory should exist when it has matching files (recursive)"
+        );
+        
+        let src = src.unwrap();
+        assert!(
+            src.children.iter().any(|n| n.name == "module.rs"),
+            "module.rs should be found in src/ (recursive matching)"
+        );
+        assert!(
+            !src.children.iter().any(|n| n.name == "data.json"),
+            "data.json should not be found"
         );
     }
 
     #[test]
     fn test_wildcard_pattern_from_subdirectory() {
         // Test '*.rs' when starting from a subdirectory (like 'tree2md src -f "*.rs"')
+        // Now should match recursively
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
 
@@ -463,12 +474,6 @@ mod tests {
         )
         .unwrap();
 
-        // Debug: print what was found
-        eprintln!(
-            "Found children: {:?}",
-            tree.children.iter().map(|n| &n.name).collect::<Vec<_>>()
-        );
-
         // Should find .rs files directly in src/
         let main_rs = tree.children.iter().find(|n| n.name == "main.rs");
         assert!(
@@ -489,11 +494,21 @@ mod tests {
             "test.txt should not be found with '*.rs' pattern"
         );
 
-        // module directory should be removed as module/mod.rs doesn't match '*.rs'
+        // module directory should NOW be present with mod.rs inside (recursive matching)
         let module = tree.children.iter().find(|n| n.name == "module");
         assert!(
-            module.is_none(),
-            "module directory should be removed when '*.rs' doesn't match nested files"
+            module.is_some(),
+            "module directory should be present with '*.rs' recursive matching"
+        );
+        
+        let module = module.unwrap();
+        assert!(
+            module.children.iter().any(|n| n.name == "mod.rs"),
+            "mod.rs should be found in module/ (recursive)"
+        );
+        assert!(
+            !module.children.iter().any(|n| n.name == "data.json"),
+            "data.json should not be found"
         );
     }
 }
