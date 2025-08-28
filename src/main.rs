@@ -138,10 +138,6 @@ struct Args {
     #[arg(long = "root-label")]
     root_label: Option<String>,
 
-    /// Keep JSON output pure (no comments)
-    #[arg(long = "pure-json")]
-    pure_json: bool,
-
     /// Directory to scan (defaults to current directory)
     #[arg(default_value = ".")]
     directory: String,
@@ -561,23 +557,11 @@ fn print_file_content_with_display(path: &Path, display_path: &Path, args: &Args
         .to_string_lossy();
     let lang = detect_lang(&file_name);
 
-    // Check if we need to use jsonc for JSON files with comments
-    let mut lang_name = lang.map(|l| l.name).unwrap_or("");
-    let needs_comment = lang.is_some() && !args.pure_json;
-
-    if lang_name == "json" && needs_comment {
-        lang_name = "jsonc"; // Use jsonc for JSON with comments
-    }
+    let lang_name = lang.map(|l| l.name).unwrap_or("");
 
     // Print markdown code block
     println!("\n### {}", display_path.display());
     println!("```{}", lang_name);
-
-    if needs_comment {
-        if let Some(l) = lang {
-            println!("{}", l.to_comment(&display_path.display().to_string()));
-        }
-    }
 
     print!("{}", content);
 
@@ -588,12 +572,11 @@ fn print_file_content_with_display(path: &Path, display_path: &Path, args: &Args
 
     if truncation_info.truncated {
         let message = generate_truncation_message(&truncation_info);
-        if needs_comment {
-            if let Some(l) = lang {
-                println!("{}", l.to_comment(&message));
-            } else {
-                println!("// {}", message);
-            }
+        // Print truncation message as a comment in the appropriate language
+        if let Some(l) = lang {
+            println!("{}", l.to_comment(&message));
+        } else {
+            println!("// {}", message);
         }
     }
 
@@ -1008,5 +991,135 @@ mod tests {
 
         assert!(tree.is_dir);
         assert!(tree.children.len() >= 2);
+    }
+
+    #[test]
+    fn test_no_file_comments_in_code_blocks() {
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create test files
+        let test_rs_content = "fn main() {\n    println!(\"Hello\");\n}";
+        let test_json_content = "{\n  \"name\": \"test\"\n}";
+
+        fs::write(temp_path.join("test.rs"), test_rs_content).unwrap();
+        fs::write(temp_path.join("test.json"), test_json_content).unwrap();
+
+        // Test Rust file output
+        let mut output = Vec::new();
+        {
+            let display_path = PathBuf::from("test.rs");
+
+            // Simulate print_file_content_with_display output
+            writeln!(&mut output, "\n### {}", display_path.display()).unwrap();
+            writeln!(&mut output, "```rust").unwrap();
+            write!(&mut output, "{}", test_rs_content).unwrap();
+            writeln!(&mut output).unwrap();
+            writeln!(&mut output, "```").unwrap();
+        }
+
+        let output_str = String::from_utf8(output).unwrap();
+
+        // Verify no file comment is present
+        assert!(
+            !output_str.contains("// test.rs"),
+            "Should not contain file comment"
+        );
+        assert!(
+            output_str.contains("### test.rs"),
+            "Should contain markdown header"
+        );
+        assert!(
+            output_str.contains("```rust"),
+            "Should contain language tag"
+        );
+        assert!(
+            output_str.contains(test_rs_content),
+            "Should contain file content"
+        );
+
+        // Test JSON file output
+        let mut output = Vec::new();
+        {
+            let display_path = PathBuf::from("test.json");
+
+            // Simulate print_file_content_with_display output for JSON
+            writeln!(&mut output, "\n### {}", display_path.display()).unwrap();
+            writeln!(&mut output, "```json").unwrap();
+            write!(&mut output, "{}", test_json_content).unwrap();
+            writeln!(&mut output).unwrap();
+            writeln!(&mut output, "```").unwrap();
+        }
+
+        let output_str = String::from_utf8(output).unwrap();
+
+        // Verify JSON uses 'json' not 'jsonc' and has no comment
+        assert!(
+            !output_str.contains("// test.json"),
+            "Should not contain file comment"
+        );
+        assert!(
+            output_str.contains("```json"),
+            "Should use 'json' language tag"
+        );
+        assert!(
+            !output_str.contains("```jsonc"),
+            "Should not use 'jsonc' language tag"
+        );
+        assert!(
+            output_str.contains(test_json_content),
+            "Should contain file content"
+        );
+    }
+
+    #[test]
+    fn test_truncation_message_preserved() {
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create a file with multiple lines
+        let mut content = String::new();
+        for i in 1..=20 {
+            content.push_str(&format!("Line {}\n", i));
+        }
+        fs::write(temp_path.join("large.txt"), &content).unwrap();
+
+        // Simulate truncation output
+        let mut output = Vec::new();
+        let display_path = PathBuf::from("large.txt");
+
+        writeln!(&mut output, "\n### {}", display_path.display()).unwrap();
+        writeln!(&mut output, "```").unwrap();
+
+        // Output first 5 lines
+        for i in 1..=5 {
+            writeln!(&mut output, "Line {}", i).unwrap();
+        }
+
+        // Add truncation message
+        writeln!(
+            &mut output,
+            "// [Content truncated: showing first 5 of 20 lines]"
+        )
+        .unwrap();
+        writeln!(&mut output, "```").unwrap();
+
+        let output_str = String::from_utf8(output).unwrap();
+
+        // Verify truncation message is present but file comment is not
+        assert!(
+            !output_str.contains("// large.txt"),
+            "Should not contain file comment"
+        );
+        assert!(
+            output_str.contains("// [Content truncated:"),
+            "Should contain truncation message"
+        );
     }
 }

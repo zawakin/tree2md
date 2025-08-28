@@ -192,7 +192,6 @@ git diff --name-only HEAD~1 | tree2md --stdin
 * `--show-root` — print the display root at the top
 * `--no-root` — omit the root node in tree mode (default in stdin mode)
 * `--root-label <LABEL>` — custom label for the root (e.g. `"."`, `"PROJECT_ROOT"`)
-* `--pure-json` — keep JSON output pure (no comment lines)
 
 ---
 
@@ -256,7 +255,6 @@ find ~/projects/myapp -type f | tree2md --stdin --strip-prefix ~/projects
 
 ### src/main.rs
 ```rust
-// src/main.rs
 fn main() {
     println!("Hello, world!");
 }
@@ -264,7 +262,6 @@ fn main() {
 
 ### src/lib.rs
 ```rust
-// src/lib.rs
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
 }
