@@ -1,5 +1,8 @@
 # tree2md
 
+[![Crates.io](https://img.shields.io/crates/v/tree2md.svg)](https://crates.io/crates/tree2md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A command-line tool that scans directories and outputs their structure in Markdown format. Can optionally include file contents as code blocks with syntax highlighting.
 
 ## Features
