@@ -20,22 +20,22 @@ pub enum Selection {
 pub struct MatcherEngine {
     /// Compiled extension set for fast lookups
     include_ext_set: HashSet<String>,
-    
+
     /// Compiled include glob patterns
     include_globset: Option<GlobSet>,
-    
+
     /// Compiled exclude glob patterns
     exclude_globset: Option<GlobSet>,
-    
+
     /// Gitignore rules if enabled
     gitignore: Option<Gitignore>,
-    
+
     /// Whether we have any include rules
     has_includes: bool,
-    
+
     /// Whether to include hidden files
     include_hidden: bool,
-    
+
     /// Whether matching is case sensitive
     case_sensitive: bool,
 }
@@ -44,58 +44,69 @@ impl MatcherEngine {
     /// Compile a MatchSpec into an optimized MatcherEngine
     pub fn compile(spec: &MatchSpec, root: &Path) -> io::Result<Self> {
         // Build extension set
-        let include_ext_set: HashSet<String> = spec.include_ext.iter()
-            .map(|ext| if spec.case_sensitive {
-                ext.clone()
-            } else {
-                ext.to_lowercase()
+        let include_ext_set: HashSet<String> = spec
+            .include_ext
+            .iter()
+            .map(|ext| {
+                if spec.case_sensitive {
+                    ext.clone()
+                } else {
+                    ext.to_lowercase()
+                }
             })
             .collect();
-        
+
         // Build include globset
         let include_globset = if !spec.include_glob.is_empty() {
             let mut builder = GlobSetBuilder::new();
             for pattern in &spec.include_glob {
                 let _glob = Glob::new(pattern)
-                    .map_err(|e| io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("Invalid include glob pattern '{}': {}", pattern, e)
-                    ))?
+                    .map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Invalid include glob pattern '{}': {}", pattern, e),
+                        )
+                    })?
                     .compile_matcher();
-                
+
                 builder.add(Glob::new(pattern).unwrap());
             }
-            Some(builder.build().map_err(|e| io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Failed to build include globset: {}", e)
-            ))?)
+            Some(builder.build().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Failed to build include globset: {}", e),
+                )
+            })?)
         } else {
             None
         };
-        
+
         // Build exclude globset
         let exclude_globset = if !spec.exclude_glob.is_empty() {
             let mut builder = GlobSetBuilder::new();
             for pattern in &spec.exclude_glob {
-                let glob = Glob::new(pattern)
-                    .map_err(|e| io::Error::new(
+                let glob = Glob::new(pattern).map_err(|e| {
+                    io::Error::new(
                         io::ErrorKind::InvalidInput,
-                        format!("Invalid exclude glob pattern '{}': {}", pattern, e)
-                    ))?;
+                        format!("Invalid exclude glob pattern '{}': {}", pattern, e),
+                    )
+                })?;
                 builder.add(glob);
             }
-            Some(builder.build().map_err(|e| io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Failed to build exclude globset: {}", e)
-            ))?)
+            Some(builder.build().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Failed to build exclude globset: {}", e),
+                )
+            })?)
         } else {
             None
         };
-        
+
         // Build gitignore if needed
         let gitignore = if spec.respect_gitignore {
             let mut builder = GitignoreBuilder::new(root);
-            
+
             // Add .gitignore from the root and parent directories
             let mut current = root;
             loop {
@@ -103,14 +114,14 @@ impl MatcherEngine {
                 if gitignore_path.exists() {
                     builder.add(gitignore_path);
                 }
-                
+
                 if let Some(parent) = current.parent() {
                     current = parent;
                 } else {
                     break;
                 }
             }
-            
+
             // Also check for global gitignore
             if let Some(home) = dirs::home_dir() {
                 let global_gitignore = home.join(".gitignore");
@@ -118,15 +129,17 @@ impl MatcherEngine {
                     builder.add(global_gitignore);
                 }
             }
-            
-            Some(builder.build().map_err(|e| io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Failed to build gitignore: {}", e)
-            ))?)
+
+            Some(builder.build().map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Failed to build gitignore: {}", e),
+                )
+            })?)
         } else {
             None
         };
-        
+
         Ok(Self {
             include_ext_set,
             include_globset,
@@ -137,16 +150,16 @@ impl MatcherEngine {
             case_sensitive: spec.case_sensitive,
         })
     }
-    
+
     /// Select whether to include, exclude, or prune a file
     pub fn select_file(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
-        
+
         // Check if it's a hidden file (unless we include hidden files)
         if !self.include_hidden && self.is_hidden(&path_str) {
             return Selection::Exclude;
         }
-        
+
         // Priority 1: Check include rules (if any)
         if self.has_includes {
             let included = self.matches_include_rules(&path_str, rel_path);
@@ -160,25 +173,25 @@ impl MatcherEngine {
             // If we have include rules but file doesn't match, exclude it
             return Selection::Exclude;
         }
-        
+
         // Priority 2: Check exclude rules
         if self.matches_exclude_rules(&path_str, rel_path) {
             return Selection::Exclude;
         }
-        
+
         // Default: include if no rules or only exclude rules
         Selection::Include
     }
-    
+
     /// Select whether to include, exclude, or prune a directory
     pub fn select_dir(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
-        
+
         // Check if it's a hidden directory (unless we include hidden files)
         if !self.include_hidden && self.is_hidden(&path_str) {
             return Selection::PruneDir;
         }
-        
+
         // Check gitignore for directories
         if let Some(ref gitignore) = self.gitignore {
             let path_buf = rel_path.to_path_buf();
@@ -186,20 +199,21 @@ impl MatcherEngine {
                 return Selection::PruneDir;
             }
         }
-        
+
         // Check exclude globs for directories
         if let Some(ref exclude_globset) = self.exclude_globset {
             // For directory matching, try both with and without trailing slash
-            if exclude_globset.is_match(path_str.as_ref()) ||
-               exclude_globset.is_match(&format!("{}/", path_str)) {
+            if exclude_globset.is_match(path_str.as_ref())
+                || exclude_globset.is_match(format!("{}/", path_str))
+            {
                 return Selection::PruneDir;
             }
         }
-        
+
         // Don't prune directories by default - we need to check their contents
         Selection::Include
     }
-    
+
     /// Check if a path matches any include rules
     fn matches_include_rules(&self, path_str: &str, rel_path: &RelPath) -> bool {
         // Check extension matching
@@ -212,23 +226,23 @@ impl MatcherEngine {
                 } else {
                     ext_str.to_lowercase()
                 };
-                
+
                 if self.include_ext_set.contains(&ext_to_check) {
                     return true;
                 }
             }
         }
-        
+
         // Check glob patterns
         if let Some(ref include_globset) = self.include_globset {
             if include_globset.is_match(path_str) {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Check if a path matches any exclude rules
     fn matches_exclude_rules(&self, path_str: &str, rel_path: &RelPath) -> bool {
         // Check gitignore
@@ -238,22 +252,22 @@ impl MatcherEngine {
                 return true;
             }
         }
-        
+
         // Check exclude globs
         if let Some(ref exclude_globset) = self.exclude_globset {
             if exclude_globset.is_match(path_str) {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Check if a path component indicates a hidden file/directory
     fn is_hidden(&self, path_str: &str) -> bool {
-        path_str.split('/').any(|component| {
-            component.starts_with('.') && component != "." && component != ".."
-        })
+        path_str
+            .split('/')
+            .any(|component| component.starts_with('.') && component != "." && component != "..")
     }
 }
 
@@ -261,100 +275,112 @@ impl MatcherEngine {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[test]
     fn test_include_extensions() {
-        let spec = MatchSpec::new()
-            .with_include_ext(vec![".rs".to_string(), ".go".to_string()]);
-        
+        let spec = MatchSpec::new().with_include_ext(vec![".rs".to_string(), ".go".to_string()]);
+
         let temp_dir = TempDir::new().unwrap();
         let engine = MatcherEngine::compile(&spec, temp_dir.path()).unwrap();
-        
+
         let rs_file = RelPath::from_relative("src/main.rs");
         assert_eq!(engine.select_file(&rs_file), Selection::Include);
-        
+
         let go_file = RelPath::from_relative("pkg/server.go");
         assert_eq!(engine.select_file(&go_file), Selection::Include);
-        
+
         let txt_file = RelPath::from_relative("readme.txt");
         assert_eq!(engine.select_file(&txt_file), Selection::Exclude);
     }
-    
+
     #[test]
     fn test_include_globs() {
-        let spec = MatchSpec::new()
-            .with_include_glob(vec!["src/**/*.rs".to_string(), "*.md".to_string()]);
-        
+        let spec =
+            MatchSpec::new().with_include_glob(vec!["src/**/*.rs".to_string(), "*.md".to_string()]);
+
         let temp_dir = TempDir::new().unwrap();
         let engine = MatcherEngine::compile(&spec, temp_dir.path()).unwrap();
-        
+
         let src_rs = RelPath::from_relative("src/main.rs");
         assert_eq!(engine.select_file(&src_rs), Selection::Include);
-        
+
         let nested_rs = RelPath::from_relative("src/module/lib.rs");
         assert_eq!(engine.select_file(&nested_rs), Selection::Include);
-        
+
         let readme = RelPath::from_relative("README.md");
         assert_eq!(engine.select_file(&readme), Selection::Include);
-        
+
         let other_rs = RelPath::from_relative("test/main.rs");
         assert_eq!(engine.select_file(&other_rs), Selection::Exclude);
     }
-    
+
     #[test]
     fn test_exclude_globs() {
         let spec = MatchSpec::new()
             .with_exclude_glob(vec!["**/target/**".to_string(), "*.tmp".to_string()]);
-        
+
         let temp_dir = TempDir::new().unwrap();
         let engine = MatcherEngine::compile(&spec, temp_dir.path()).unwrap();
-        
+
         let normal_file = RelPath::from_relative("src/main.rs");
         assert_eq!(engine.select_file(&normal_file), Selection::Include);
-        
+
         let target_file = RelPath::from_relative("target/debug/app");
         assert_eq!(engine.select_file(&target_file), Selection::Exclude);
-        
+
         let tmp_file = RelPath::from_relative("cache.tmp");
         assert_eq!(engine.select_file(&tmp_file), Selection::Exclude);
-        
+
         // Test directory pruning
         let target_dir = RelPath::from_relative("target");
         assert_eq!(engine.select_dir(&target_dir), Selection::PruneDir);
     }
-    
+
     #[test]
     fn test_precedence() {
         // Include rules take precedence, but excludes can override
         let spec = MatchSpec::new()
             .with_include_glob(vec!["**/*.rs".to_string()])
             .with_exclude_glob(vec!["**/test/**".to_string()]);
-        
+
         let temp_dir = TempDir::new().unwrap();
         let engine = MatcherEngine::compile(&spec, temp_dir.path()).unwrap();
-        
+
         let src_rs = RelPath::from_relative("src/main.rs");
         assert_eq!(engine.select_file(&src_rs), Selection::Include);
-        
+
         let test_rs = RelPath::from_relative("test/test_main.rs");
         assert_eq!(engine.select_file(&test_rs), Selection::Exclude);
     }
-    
+
     #[test]
     fn test_hidden_files() {
         let spec_no_hidden = MatchSpec::new().with_hidden(false);
         let spec_with_hidden = MatchSpec::new().with_hidden(true);
-        
+
         let temp_dir = TempDir::new().unwrap();
         let engine_no_hidden = MatcherEngine::compile(&spec_no_hidden, temp_dir.path()).unwrap();
-        let engine_with_hidden = MatcherEngine::compile(&spec_with_hidden, temp_dir.path()).unwrap();
-        
+        let engine_with_hidden =
+            MatcherEngine::compile(&spec_with_hidden, temp_dir.path()).unwrap();
+
         let hidden_file = RelPath::from_relative(".gitignore");
-        assert_eq!(engine_no_hidden.select_file(&hidden_file), Selection::Exclude);
-        assert_eq!(engine_with_hidden.select_file(&hidden_file), Selection::Include);
-        
+        assert_eq!(
+            engine_no_hidden.select_file(&hidden_file),
+            Selection::Exclude
+        );
+        assert_eq!(
+            engine_with_hidden.select_file(&hidden_file),
+            Selection::Include
+        );
+
         let hidden_dir = RelPath::from_relative(".git");
-        assert_eq!(engine_no_hidden.select_dir(&hidden_dir), Selection::PruneDir);
-        assert_eq!(engine_with_hidden.select_dir(&hidden_dir), Selection::Include);
+        assert_eq!(
+            engine_no_hidden.select_dir(&hidden_dir),
+            Selection::PruneDir
+        );
+        assert_eq!(
+            engine_with_hidden.select_dir(&hidden_dir),
+            Selection::Include
+        );
     }
 }

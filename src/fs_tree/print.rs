@@ -63,7 +63,6 @@ pub fn print_flat_structure(
     display_root: &Path,
     original_inputs: &HashMap<PathBuf, String>,
 ) {
-    println!("## File Structure");
     for path in paths {
         let original_input = original_inputs.get(path).map(|s| s.as_str());
         let display_path = calculate_display_path(

@@ -9,7 +9,7 @@ mod util;
 
 use clap::Parser;
 use cli::{Args, StdinMode};
-use filter::{compile_patterns, filter_by_extension, parse_ext_list};
+use filter::{filter_by_extension, parse_ext_list};
 use fs_tree::{
     build_tree, insert_path_into_tree, print_code_blocks, print_flat_structure,
     print_tree_with_options, Node,
@@ -34,33 +34,49 @@ fn main() -> io::Result<()> {
         println!("Display root: {}\n", display_root.display());
     }
 
-    // Compile wildcard patterns
-    let patterns = compile_patterns(&args.find_patterns)?;
-
     // Get the root path for pattern matching
     let root_path = Path::new(&args.directory)
         .canonicalize()
         .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
 
     // Build tree using unified WalkBuilder approach
-    let root_node = build_tree(&args.directory, &args, &patterns, &root_path, &display_root)?;
-
-    // Filter by extensions if specified
-    let mut root_node = root_node;
+    let mut root_node = build_tree(&args.directory, &args, &root_path, &display_root)?;
     if let Some(ref ext_str) = args.include_ext {
         let exts = parse_ext_list(ext_str);
         filter_by_extension(&mut root_node, &exts);
     }
 
-    // Print tree structure
+    // Print structure based on format preference
     println!("## File Structure");
-    // For non-stdin mode, show root by default unless --no-root is specified
-    let show_root = !args.no_root;
-    print_tree_with_options(&root_node, "", &args, show_root);
 
-    // Print code blocks if requested
-    if args.contents {
-        print_code_blocks(&root_node, &args);
+    if args.flat {
+        // Collect all file paths for flat output
+        let mut all_paths = Vec::new();
+        collect_files_from_tree(&root_node, &mut all_paths);
+        all_paths.sort();
+
+        // Print in flat format
+        print_flat_structure(
+            &all_paths,
+            &args,
+            &display_root,
+            &std::collections::HashMap::new(),
+        );
+
+        // Print code blocks if requested
+        if args.contents {
+            print_code_blocks(&root_node, &args);
+        }
+    } else {
+        // Print tree structure
+        // For non-stdin mode, show root by default unless --no-root is specified
+        let show_root = !args.no_root;
+        print_tree_with_options(&root_node, "", &args, show_root);
+
+        // Print code blocks if requested
+        if args.contents {
+            print_code_blocks(&root_node, &args);
+        }
     }
 
     Ok(())
@@ -102,7 +118,6 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
 
     // Handle merge mode
     if matches!(args.stdin_mode, StdinMode::Merge) {
-        let patterns = compile_patterns(&args.find_patterns)?;
         let root_path = Path::new(&args.directory)
             .canonicalize()
             .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
@@ -110,7 +125,7 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         // Determine display root for merge mode
         let display_root = determine_display_root(args, &all_paths)?;
 
-        let dir_node = build_tree(&args.directory, args, &patterns, &root_path, &display_root)?;
+        let dir_node = build_tree(&args.directory, args, &root_path, &display_root)?;
 
         // Collect files from directory tree
         let mut dir_files = Vec::new();
@@ -265,15 +280,8 @@ mod tests {
 
         let args = Args::parse_from(&["tree2md", temp_path.to_str().unwrap()]);
         let display_root = temp_path.to_path_buf();
-        let patterns = Vec::new();
-        let tree = build_tree(
-            temp_path.to_str().unwrap(),
-            &args,
-            &patterns,
-            temp_path,
-            &display_root,
-        )
-        .unwrap();
+        let tree =
+            build_tree(temp_path.to_str().unwrap(), &args, temp_path, &display_root).unwrap();
 
         assert!(tree.is_dir);
         assert!(tree.children.len() >= 2);

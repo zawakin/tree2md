@@ -1,6 +1,6 @@
 use super::node::Node;
 use crate::cli::Args;
-use crate::matcher::{MatcherEngine, MatchSpec, RelPath, Selection};
+use crate::matcher::{MatchSpec, MatcherEngine, RelPath, Selection};
 use crate::util::path::calculate_display_path;
 use ignore::WalkBuilder;
 use std::collections::HashMap;
@@ -12,11 +12,10 @@ use std::path::{Path, PathBuf};
 pub fn build_tree(
     path: &str,
     args: &Args,
-    patterns: &[glob::Pattern],
     root_path: &Path,
     display_root: &Path,
 ) -> io::Result<Node> {
-    // Convert old Pattern API to new MatchSpec API
+    // Create MatchSpec from CLI arguments
     let spec = MatchSpec::from_args(args);
     build_tree_with_spec(path, args, &spec, root_path, display_root)
 }
@@ -55,12 +54,12 @@ pub fn build_tree_with_spec(
     if metadata.is_dir() {
         // Compile the matcher engine
         let matcher = MatcherEngine::compile(spec, root_path)?;
-        
+
         // Use WalkBuilder for recursive directory traversal
         let mut walker = WalkBuilder::new(path);
         walker
             .hidden(!args.all)
-            .git_ignore(false)  // We handle gitignore in MatcherEngine
+            .git_ignore(false) // We handle gitignore in MatcherEngine
             .git_global(false)
             .git_exclude(false)
             .parents(false)
@@ -91,10 +90,10 @@ pub fn build_tree_with_spec(
             }
 
             // Check if this path is under a pruned directory
-            let is_under_pruned = pruned_dirs.iter().any(|pruned| {
-                entry_path.starts_with(pruned)
-            });
-            
+            let is_under_pruned = pruned_dirs
+                .iter()
+                .any(|pruned| entry_path.starts_with(pruned));
+
             if is_under_pruned {
                 continue;
             }
@@ -157,7 +156,7 @@ pub fn build_tree_with_spec(
 
         // Build the tree structure from the flat map
         build_tree_from_map(&mut root_node, &nodes_map, path_buf)?;
-        
+
         // With early pruning, we shouldn't need to remove empty directories
         // But we can keep this as a safety measure if include rules are used
         if spec.has_includes() {
@@ -247,40 +246,33 @@ mod tests {
         fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
         fs::write(root.join("src/lib.rs"), "pub fn lib() {}").unwrap();
         fs::write(root.join("src/test.txt"), "test").unwrap();
-        
+
         fs::create_dir_all(root.join("target/debug")).unwrap();
         fs::write(root.join("target/debug/app"), "binary").unwrap();
-        
+
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join(".gitignore"), "target/").unwrap();
 
         let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
-        
+
         // Test with extension filter
-        let spec = MatchSpec::new()
-            .with_include_ext(vec![".rs".to_string()]);
-        
+        let spec = MatchSpec::new().with_include_ext(vec![".rs".to_string()]);
+
         let display_root = root.to_path_buf();
-        let tree = build_tree_with_spec(
-            root.to_str().unwrap(),
-            &args,
-            &spec,
-            root,
-            &display_root,
-        )
-        .unwrap();
+        let tree = build_tree_with_spec(root.to_str().unwrap(), &args, &spec, root, &display_root)
+            .unwrap();
 
         // Should have src directory
         let src = tree.children.iter().find(|n| n.name == "src");
         assert!(src.is_some(), "src directory should exist");
-        
+
         let src = src.unwrap();
         // Should have two .rs files but not .txt
         assert_eq!(src.children.len(), 2, "Should have two .rs files");
         assert!(src.children.iter().any(|n| n.name == "main.rs"));
         assert!(src.children.iter().any(|n| n.name == "lib.rs"));
         assert!(!src.children.iter().any(|n| n.name == "test.txt"));
-        
+
         // target directory should be pruned (no matching files)
         assert!(tree.children.iter().find(|n| n.name == "target").is_none());
     }
@@ -292,31 +284,24 @@ mod tests {
 
         // Create test structure with gitignore
         fs::write(root.join(".gitignore"), "target/\n*.tmp").unwrap();
-        
+
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
-        
+
         fs::create_dir_all(root.join("target/debug")).unwrap();
         fs::write(root.join("target/debug/app"), "binary").unwrap();
-        
+
         fs::write(root.join("temp.tmp"), "temporary").unwrap();
         fs::write(root.join("data.txt"), "data").unwrap();
 
         let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
-        
+
         // Test with gitignore enabled
-        let spec = MatchSpec::new()
-            .with_gitignore(true);
-        
+        let spec = MatchSpec::new().with_gitignore(true);
+
         let display_root = root.to_path_buf();
-        let tree = build_tree_with_spec(
-            root.to_str().unwrap(),
-            &args,
-            &spec,
-            root,
-            &display_root,
-        )
-        .unwrap();
+        let tree = build_tree_with_spec(root.to_str().unwrap(), &args, &spec, root, &display_root)
+            .unwrap();
 
         // Should have src and data.txt, but not target or temp.tmp
         assert!(tree.children.iter().any(|n| n.name == "src"));
@@ -338,31 +323,25 @@ mod tests {
         fs::write(root.join("README.md"), "readme").unwrap();
 
         let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
-        
+
         // Test with glob pattern
-        let spec = MatchSpec::new()
-            .with_include_glob(vec!["src/**/*.rs".to_string(), "*.md".to_string()]);
-        
+        let spec =
+            MatchSpec::new().with_include_glob(vec!["src/**/*.rs".to_string(), "*.md".to_string()]);
+
         let display_root = root.to_path_buf();
-        let tree = build_tree_with_spec(
-            root.to_str().unwrap(),
-            &args,
-            &spec,
-            root,
-            &display_root,
-        )
-        .unwrap();
+        let tree = build_tree_with_spec(root.to_str().unwrap(), &args, &spec, root, &display_root)
+            .unwrap();
 
         // Should have README.md at root
         assert!(tree.children.iter().any(|n| n.name == "README.md"));
-        
+
         // Should NOT have test.rs at root (doesn't match pattern)
         assert!(!tree.children.iter().any(|n| n.name == "test.rs"));
-        
+
         // Should have src with nested structure
         let src = tree.children.iter().find(|n| n.name == "src").unwrap();
         assert!(src.children.iter().any(|n| n.name == "main.rs"));
-        
+
         let module = src.children.iter().find(|n| n.name == "module").unwrap();
         assert!(module.children.iter().any(|n| n.name == "lib.rs"));
     }
@@ -435,4 +414,3 @@ pub fn insert_path_into_tree(
         }
     }
 }
-
