@@ -5,6 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Stdin input mode with `--stdin` and `--stdin0` options
+  - Read file paths from stdin for precise control
+  - Support for null-delimited input (`--stdin0`) for paths with spaces
+  - `--stdin-mode` option for authoritative or merge modes
+  - `--keep-order` to preserve input order from stdin
+  - `--base` for resolving relative paths
+  - `--restrict-root` for security boundary enforcement
+  - `--expand-dirs` to expand directories found in stdin
+  - `--flat` output format for discrete file collections
+- New `stdin` module for input processing
+- Integration tests for stdin functionality
+
+### Changed
+- Default `.gitignore` respect behavior differs in stdin mode (off by default in authoritative mode)
+
+### Notes
+- No breaking changes - all existing functionality preserved
+- Stdin mode is completely optional and backward compatible
 
 ## [0.3.2] - 2025-01-27
 ### Changed

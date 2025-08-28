@@ -11,6 +11,9 @@ A command-line tool that scans directories and outputs their structure in Markdo
 - Respect `.gitignore` patterns
 - Truncate large files by bytes or lines
 - Support for hidden files and directories
+- Read file paths from stdin for precise control
+- Flat output format for discrete file collections
+- Security boundary enforcement with `--restrict-root`
 - Fast and efficient, written in Rust
 
 ## Installation
@@ -94,7 +97,39 @@ tree2md -c --truncate 1000
 tree2md -f "src/**/*.rs" -c --max-lines 100
 ```
 
+### Stdin Mode
+
+Read file paths from stdin for precise control over which files to include:
+
+```bash
+# Document only Git-tracked TypeScript files
+git ls-files "*.ts" | tree2md --stdin -c
+
+# Document recently changed files
+git diff --name-only HEAD~1 | tree2md --stdin
+
+# Use with find for null-delimited paths (handles spaces/special chars)
+find src -type f -name "*.rs" -print0 | tree2md --stdin0
+
+# Expand directories found in stdin
+printf '%s\n' src tests | tree2md --stdin --expand-dirs
+
+# Keep input order (useful for prioritized documentation)
+echo -e "README.md\nsrc/main.rs\nCargo.toml" | tree2md --stdin --keep-order
+
+# Restrict paths to project directory (security)
+rg -l "TODO" | tree2md --stdin --restrict-root "$(pwd)"
+
+# Merge stdin with directory scan
+rg --files --type rust | tree2md --stdin --stdin-mode merge src
+
+# Use flat format for discrete file collections
+fzf -m | tree2md --stdin --flat -c
+```
+
 ## Options
+
+### Basic Options
 
 - `-c, --contents` - Include file contents as code blocks
 - `-t, --truncate <N>` - Truncate file content to the first N bytes
@@ -105,6 +140,19 @@ tree2md -f "src/**/*.rs" -c --max-lines 100
 - `--respect-gitignore` - Respect .gitignore files
 - `-h, --help` - Print help information
 - `-V, --version` - Print version information
+
+### Stdin Mode Options
+
+- `--stdin` - Read file paths from stdin (newline-delimited)
+- `--stdin0` - Read file paths from stdin (null-delimited, for paths with spaces)
+- `--stdin-mode <authoritative|merge>` - How to handle stdin input (default: authoritative)
+  - `authoritative`: Use only files from stdin
+  - `merge`: Combine stdin files with directory scan
+- `--keep-order` - Preserve the input order from stdin (default: sort alphabetically)
+- `--base <DIR>` - Base directory for resolving relative paths from stdin (default: current directory)
+- `--restrict-root <DIR>` - Ensure all paths are within this directory (security feature)
+- `--expand-dirs` - Expand directories found in stdin to their contents
+- `--flat` - Use flat output format instead of tree structure
 
 ## Example Output
 
