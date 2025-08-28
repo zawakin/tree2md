@@ -22,12 +22,12 @@ impl Node {
             original_input: None,
         }
     }
-    
+
     pub fn with_display_path(mut self, display_path: PathBuf) -> Self {
         self.display_path = display_path;
         self
     }
-    
+
     pub fn with_original_input(mut self, original_input: Option<String>) -> Self {
         self.original_input = original_input;
         self

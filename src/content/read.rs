@@ -32,7 +32,11 @@ pub fn load_file_content_with_limits(
     };
 
     // Read first chunk to detect binary content
-    let cap = PROBE_BYTES.min(file.metadata().map(|m| m.len() as usize).unwrap_or(PROBE_BYTES));
+    let cap = PROBE_BYTES.min(
+        file.metadata()
+            .map(|m| m.len() as usize)
+            .unwrap_or(PROBE_BYTES),
+    );
     let mut buffer = vec![0; cap];
     let bytes_read = match file.read(&mut buffer) {
         Ok(n) => n,

@@ -42,7 +42,7 @@ fn normalize_path_string(path: &str) -> String {
     if path == "/" {
         return "/".to_string();
     }
-    
+
     let mut result = String::new();
     let mut prev_was_slash = false;
     let starts_with_slash = path.starts_with('/');
@@ -95,15 +95,15 @@ mod tests {
         assert_eq!(normalize_path_string("//var///log/"), "/var/log");
         assert_eq!(normalize_path_string("///"), "/");
         assert_eq!(normalize_path_string("/foo//bar///baz/"), "/foo/bar/baz");
-        
+
         // Note: On Unix, backslashes are not path separators, they're regular characters
         // The normalize function handles '/' and '\\' as separators, so this will be normalized
         assert_eq!(normalize_path_string(r".\src\main.rs"), "src/main.rs");
-        
+
         // Mixed slashes
         assert_eq!(normalize_path_string("foo//bar///"), "foo/bar");
         assert_eq!(normalize_path_string("./foo//./bar"), "foo/./bar");
-        
+
         // Edge cases
         assert_eq!(normalize_path_string(""), ".");
         assert_eq!(normalize_path_string("."), ".");
@@ -115,7 +115,7 @@ mod tests {
     fn test_calculate_display_path() {
         let resolved = PathBuf::from("/home/user/project/src/main.rs");
         let display_root = PathBuf::from("/home/user/project");
-        
+
         let result = calculate_display_path(
             &resolved,
             &DisplayPathMode::Relative,

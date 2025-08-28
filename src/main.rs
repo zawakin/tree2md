@@ -9,7 +9,10 @@ mod util;
 use clap::Parser;
 use cli::{Args, StdinMode};
 use filter::{compile_patterns, filter_by_extension, parse_ext_list};
-use fs_tree::{build_tree, insert_path_into_tree, print_code_blocks, print_flat_structure, print_tree_with_options, Node};
+use fs_tree::{
+    build_tree, insert_path_into_tree, print_code_blocks, print_flat_structure,
+    print_tree_with_options, Node,
+};
 use input::{find_common_ancestor, process_stdin_input, StdinConfig, StdinError, StdinResult};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -106,13 +109,7 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         // Determine display root for merge mode
         let display_root = determine_display_root(args, &all_paths)?;
 
-        let dir_node = build_tree(
-            &args.directory,
-            args,
-            &patterns,
-            &root_path,
-            &display_root,
-        )?;
+        let dir_node = build_tree(&args.directory, args, &patterns, &root_path, &display_root)?;
 
         // Collect files from directory tree
         let mut dir_files = Vec::new();
