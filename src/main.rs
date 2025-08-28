@@ -4,7 +4,10 @@ mod utils;
 
 use clap::{Parser, ValueEnum};
 use glob::Pattern;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::{
+    gitignore::{Gitignore, GitignoreBuilder},
+    WalkBuilder,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Seek};
@@ -13,7 +16,7 @@ use std::path::{Path, PathBuf};
 use language::detect_lang;
 use stdin::{find_common_ancestor, process_stdin_input, StdinConfig};
 use utils::{
-    calculate_display_path, compile_patterns, format_size, generate_truncation_message, 
+    calculate_display_path, compile_patterns, format_size, generate_truncation_message,
     parse_ext_list, TruncateType, TruncationInfo,
 };
 
@@ -37,7 +40,7 @@ enum DisplayPathMode {
     Input,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Node {
     name: String,
     path: PathBuf,
@@ -159,13 +162,6 @@ fn main() -> io::Result<()> {
         println!("Display root: {}\n", display_root.display());
     }
 
-    // Load gitignore if requested
-    let gitignore = if args.respect_gitignore {
-        load_gitignore(&args.directory)?
-    } else {
-        None
-    };
-
     // Compile wildcard patterns
     let patterns = compile_patterns(&args.find_patterns)?;
 
@@ -174,16 +170,20 @@ fn main() -> io::Result<()> {
         .canonicalize()
         .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
 
-    // Build tree
-    let root_node = build_tree(
-        &args.directory,
-        &args,
-        gitignore.as_ref(),
-        &patterns,
-        &root_path,
-        &display_root,
-        None,
-    )?;
+    // Build tree using WalkBuilder for better gitignore support
+    let root_node = if args.respect_gitignore {
+        build_tree_with_walk(&args.directory, &args, &patterns, &root_path, &display_root)?
+    } else {
+        build_tree(
+            &args.directory,
+            &args,
+            None,
+            &patterns,
+            &root_path,
+            &display_root,
+            None,
+        )?
+    };
 
     // Filter by extensions if specified
     let mut root_node = root_node;
@@ -665,6 +665,160 @@ fn build_tree(
     Ok(node)
 }
 
+fn build_tree_with_walk(
+    path: &str,
+    args: &Args,
+    _patterns: &[Pattern],
+    _root_path: &Path,
+    display_root: &Path,
+) -> io::Result<Node> {
+    let path_buf = Path::new(path);
+    let metadata = fs::metadata(path_buf)?;
+    let name = path_buf
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("."))
+        .to_string_lossy()
+        .to_string();
+
+    let resolved_path = path_buf
+        .canonicalize()
+        .unwrap_or_else(|_| path_buf.to_path_buf());
+
+    let display_path = calculate_display_path(
+        &resolved_path,
+        &args.display_path,
+        display_root,
+        None,
+        &args.strip_prefix,
+    );
+
+    let mut root_node = Node {
+        name,
+        path: resolved_path.clone(),
+        display_path,
+        is_dir: metadata.is_dir(),
+        children: Vec::new(),
+        original_input: None,
+    };
+
+    if metadata.is_dir() {
+        // Use WalkBuilder for recursive directory traversal with gitignore support
+        let mut walker = WalkBuilder::new(path);
+        walker
+            .hidden(!args.all) // Respect hidden files based on -a flag
+            .git_ignore(true) // Respect .gitignore files in all directories
+            .git_global(true) // Respect global gitignore
+            .git_exclude(true) // Respect .git/info/exclude
+            .parents(true) // Check parent directories for .gitignore files
+            .ignore(true) // Respect .ignore files
+            .max_depth(None); // No depth limit for now
+
+        // Build a map of paths to nodes for efficient tree construction
+        let mut nodes_map: HashMap<PathBuf, Node> = HashMap::new();
+
+        for entry in walker.build() {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let entry_path = entry.path();
+
+            // Skip the root directory itself
+            if entry_path == path_buf {
+                continue;
+            }
+
+            // Skip if path cannot be converted to string (non-UTF8 paths)
+            if entry_path.to_str().is_none() {
+                eprintln!("Warning: Skipping non-UTF8 path: {:?}", entry_path);
+                continue;
+            }
+
+            let entry_metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            let entry_name = entry_path
+                .file_name()
+                .unwrap_or_else(|| std::ffi::OsStr::new("."))
+                .to_string_lossy()
+                .to_string();
+
+            let resolved_entry_path = entry_path
+                .canonicalize()
+                .unwrap_or_else(|_| entry_path.to_path_buf());
+
+            let entry_display_path = calculate_display_path(
+                &resolved_entry_path,
+                &args.display_path,
+                display_root,
+                None,
+                &args.strip_prefix,
+            );
+
+            let node = Node {
+                name: entry_name,
+                path: resolved_entry_path.clone(),
+                display_path: entry_display_path,
+                is_dir: entry_metadata.is_dir(),
+                children: Vec::new(),
+                original_input: None,
+            };
+
+            nodes_map.insert(entry_path.to_path_buf(), node);
+        }
+
+        // Build the tree structure from the flat map
+        build_tree_from_map(&mut root_node, &nodes_map, path_buf)?;
+    }
+
+    Ok(root_node)
+}
+
+fn build_tree_from_map(
+    parent: &mut Node,
+    nodes_map: &HashMap<PathBuf, Node>,
+    base_path: &Path,
+) -> io::Result<()> {
+    let mut direct_children: Vec<PathBuf> = Vec::new();
+
+    // Find direct children of the parent
+    for path in nodes_map.keys() {
+        if let Some(parent_path) = path.parent() {
+            if parent_path == base_path {
+                direct_children.push(path.clone());
+            }
+        }
+    }
+
+    // Sort children: directories first, then files, alphabetically within each group
+    direct_children.sort_by(|a, b| {
+        let a_node = nodes_map.get(a).unwrap();
+        let b_node = nodes_map.get(b).unwrap();
+
+        match (a_node.is_dir, b_node.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a_node.name.cmp(&b_node.name),
+        }
+    });
+
+    // Add children to parent and recursively build their subtrees
+    for child_path in direct_children {
+        if let Some(child_node) = nodes_map.get(&child_path) {
+            let mut child = child_node.clone();
+            if child.is_dir {
+                build_tree_from_map(&mut child, nodes_map, &child_path)?;
+            }
+            parent.children.push(child);
+        }
+    }
+
+    Ok(())
+}
+
 fn node_matches_patterns(node: &Node, patterns: &[Pattern], root_path: &Path) -> bool {
     if patterns.is_empty() {
         return true;
@@ -831,8 +985,10 @@ fn load_file_content_with_limits(
     buffer.truncate(bytes_read);
 
     // Check for binary content (NULL bytes or other control characters)
-    let is_binary = buffer.iter().any(|&b| b == 0 || (b < 32 && b != 9 && b != 10 && b != 13));
-    
+    let is_binary = buffer
+        .iter()
+        .any(|&b| b == 0 || (b < 32 && b != 9 && b != 10 && b != 13));
+
     if is_binary {
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
         return (
@@ -850,7 +1006,7 @@ fn load_file_content_with_limits(
 
     // Reset file position and read as text
     file.seek(std::io::SeekFrom::Start(0)).ok();
-    
+
     let mut full_content = String::new();
     if let Err(e) = file.read_to_string(&mut full_content) {
         return (
