@@ -103,9 +103,7 @@ pub fn process_stdin_input(config: &StdinConfig) -> Result<Vec<PathBuf>> {
     }
 
     // Handle directories
-    let (files, dirs): (Vec<_>, Vec<_>) = paths
-        .into_iter()
-        .partition(|p| !p.is_dir());
+    let (files, dirs): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| !p.is_dir());
 
     let mut result = files;
 

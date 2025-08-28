@@ -15,7 +15,7 @@ use utils::{
     compile_patterns, generate_truncation_message, parse_ext_list, TruncateType, TruncationInfo,
 };
 
-const VERSION: &str = "0.3.2";
+const VERSION: &str = "0.4.0";
 
 #[derive(Debug, Clone, ValueEnum)]
 enum StdinMode {
@@ -342,7 +342,11 @@ fn insert_path_into_tree(root: &mut Node, path: &Path, common_ancestor: &Option<
             // Create new node
             let new_node = Node {
                 name: name.clone(),
-                path: if is_last { path.to_path_buf() } else { PathBuf::new() },
+                path: if is_last {
+                    path.to_path_buf()
+                } else {
+                    PathBuf::new()
+                },
                 is_dir: !is_last,
                 children: Vec::new(),
             };
@@ -363,7 +367,8 @@ fn print_file_content(path: &Path, args: &Args) {
         load_file_content_with_limits(path, args.truncate, args.max_lines);
 
     // Detect language
-    let file_name = path.file_name()
+    let file_name = path
+        .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new(""))
         .to_string_lossy();
     let lang = detect_lang(&file_name);
