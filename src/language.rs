@@ -1,5 +1,8 @@
 use std::path::Path;
 
+#[derive(Debug)]
+#[allow(unpredictable_function_pointer_comparisons)]
+#[derive(PartialEq)]
 pub struct Lang {
     pub ext: &'static str,
     pub name: &'static str,

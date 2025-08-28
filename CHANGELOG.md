@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Display path control options for improved output flexibility
+  - `--display-path` option: Choose between relative (default), absolute, or input paths
+  - `--display-root` option: Specify custom root for relative path calculation (default: auto-detect via LCA)
+  - `--strip-prefix` option: Remove specified prefix from display paths
+  - `--show-root` flag: Show the display root at the beginning of output
+- Root node display control
+  - `--no-root` flag: Don't show root node in tree (default for stdin mode)
+  - `--root-label <LABEL>` option: Custom label for root node (e.g., ".", "PROJECT_ROOT")
+  - Stdin mode now defaults to no root display for better portability
+- JSON output improvements
+  - Automatic `jsonc` language detection for JSON files with comments
+  - `--pure-json` flag to keep JSON output pure (no comments)
+- Better path handling for stdin mode
+  - Relative paths by default instead of absolute paths
+  - LCA (Lowest Common Ancestor) auto-detection for display root
+  - Original input preservation for `--display-path input` mode
+
+### Fixed
+- Absolute paths no longer shown in headers and comments by default
+- Improved privacy by not exposing system paths in output
+- Stdin mode no longer exposes CWD name by default
 
 ## [0.4.0] - 2025-08-28
 ### Added

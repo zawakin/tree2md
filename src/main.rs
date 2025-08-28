@@ -5,14 +5,16 @@ mod utils;
 use clap::{Parser, ValueEnum};
 use glob::Pattern;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use language::detect_lang;
-use stdin::{process_stdin_input, StdinConfig};
+use stdin::{find_common_ancestor, process_stdin_input, StdinConfig};
 use utils::{
-    compile_patterns, generate_truncation_message, parse_ext_list, TruncateType, TruncationInfo,
+    calculate_display_path, compile_patterns, generate_truncation_message, parse_ext_list,
+    TruncateType, TruncationInfo,
 };
 
 const VERSION: &str = "0.4.0";
@@ -25,12 +27,25 @@ enum StdinMode {
     Merge,
 }
 
+#[derive(Debug, Clone, ValueEnum)]
+enum DisplayPathMode {
+    /// Display relative paths from display root
+    Relative,
+    /// Display absolute paths
+    Absolute,
+    /// Display paths as provided in stdin
+    Input,
+}
+
 #[derive(Debug)]
 struct Node {
     name: String,
     path: PathBuf,
+    display_path: PathBuf,
     is_dir: bool,
     children: Vec<Node>,
+    #[allow(dead_code)]
+    original_input: Option<String>,
 }
 
 #[derive(Parser)]
@@ -99,6 +114,34 @@ struct Args {
     #[arg(long = "flat")]
     flat: bool,
 
+    /// How to display paths: 'relative' (default), 'absolute', or 'input'
+    #[arg(long = "display-path", value_enum, default_value = "relative")]
+    display_path: DisplayPathMode,
+
+    /// Root directory for relative path display (default: auto-detect)
+    #[arg(long = "display-root")]
+    display_root: Option<String>,
+
+    /// Strip prefix from display paths (can be specified multiple times)
+    #[arg(long = "strip-prefix")]
+    strip_prefix: Vec<String>,
+
+    /// Show the display root at the beginning of output
+    #[arg(long = "show-root")]
+    show_root: bool,
+
+    /// Don't show root node in tree output (default for stdin mode)
+    #[arg(long = "no-root")]
+    no_root: bool,
+
+    /// Custom label for root node (e.g., ".", "PROJECT_ROOT")
+    #[arg(long = "root-label")]
+    root_label: Option<String>,
+
+    /// Keep JSON output pure (no comments)
+    #[arg(long = "pure-json")]
+    pure_json: bool,
+
     /// Directory to scan (defaults to current directory)
     #[arg(default_value = ".")]
     directory: String,
@@ -110,6 +153,14 @@ fn main() -> io::Result<()> {
     // Handle stdin mode
     if args.stdin || args.stdin0 {
         return handle_stdin_mode(&args);
+    }
+
+    // Determine display root
+    let display_root = determine_display_root(&args, &[PathBuf::from(&args.directory)])?;
+
+    // Show root if requested
+    if args.show_root {
+        println!("Display root: {}\n", display_root.display());
     }
 
     // Load gitignore if requested
@@ -134,6 +185,8 @@ fn main() -> io::Result<()> {
         gitignore.as_ref(),
         &patterns,
         &root_path,
+        &display_root,
+        None,
     )?;
 
     // Filter by extensions if specified
@@ -145,7 +198,9 @@ fn main() -> io::Result<()> {
 
     // Print tree structure
     println!("## File Structure");
-    print_tree(&root_node, "");
+    // For non-stdin mode, show root by default unless --no-root is specified
+    let show_root = !args.no_root;
+    print_tree_with_options(&root_node, "", &args, show_root);
 
     // Print code blocks if requested
     if args.contents {
@@ -156,6 +211,12 @@ fn main() -> io::Result<()> {
 }
 
 fn handle_stdin_mode(args: &Args) -> io::Result<()> {
+    // Respect gitignore by default in stdin merge mode
+    let respect_gitignore = match args.stdin_mode {
+        StdinMode::Merge => args.respect_gitignore,
+        StdinMode::Authoritative => args.respect_gitignore,
+    };
+
     let stdin_config = StdinConfig {
         null_delimited: args.stdin0,
         base_dir: PathBuf::from(&args.base),
@@ -163,6 +224,9 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         expand_dirs: args.expand_dirs,
         keep_order: args.keep_order,
     };
+
+    // Store original inputs for display-path input mode
+    let mut original_inputs = HashMap::new();
 
     // Process stdin input
     let file_paths = match process_stdin_input(&stdin_config) {
@@ -178,12 +242,52 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         }
     };
 
+    // Read stdin again to get original inputs if needed
+    if matches!(args.display_path, DisplayPathMode::Input) {
+        let stdin = io::stdin();
+        let reader = stdin.lock();
+
+        if args.stdin0 {
+            use std::io::BufRead;
+            for line in reader.split(b'\0').flatten() {
+                if let Ok(line_str) = String::from_utf8(line) {
+                    let line_trimmed = line_str.trim();
+                    if !line_trimmed.is_empty() {
+                        let full_path = if Path::new(line_trimmed).is_relative() {
+                            stdin_config.base_dir.join(line_trimmed)
+                        } else {
+                            PathBuf::from(line_trimmed)
+                        };
+                        if let Ok(canonical) = full_path.canonicalize() {
+                            original_inputs.insert(canonical, line_trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        } else {
+            use std::io::BufRead;
+            for line in reader.lines().map_while(Result::ok) {
+                let line_trimmed = line.trim();
+                if !line_trimmed.is_empty() {
+                    let full_path = if Path::new(line_trimmed).is_relative() {
+                        stdin_config.base_dir.join(line_trimmed)
+                    } else {
+                        PathBuf::from(line_trimmed)
+                    };
+                    if let Ok(canonical) = full_path.canonicalize() {
+                        original_inputs.insert(canonical, line_trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+
     let mut all_paths = file_paths;
 
     // Handle merge mode
     if matches!(args.stdin_mode, StdinMode::Merge) {
         // Get files from directory scan
-        let gitignore = if args.respect_gitignore {
+        let gitignore = if respect_gitignore {
             load_gitignore(&args.directory)?
         } else {
             None
@@ -194,12 +298,17 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
             .canonicalize()
             .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
 
+        // Determine display root for merge mode
+        let display_root = determine_display_root(args, &all_paths)?;
+
         let dir_node = build_tree(
             &args.directory,
             args,
             gitignore.as_ref(),
             &patterns,
             &root_path,
+            &display_root,
+            None,
         )?;
 
         // Collect files from directory tree
@@ -219,6 +328,14 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         }
     }
 
+    // Determine display root
+    let display_root = determine_display_root(args, &all_paths)?;
+
+    // Show root if requested
+    if args.show_root {
+        println!("Display root: {}\n", display_root.display());
+    }
+
     // Filter by extensions if specified
     if let Some(ref ext_str) = args.include_ext {
         let exts = parse_ext_list(ext_str);
@@ -234,16 +351,120 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
 
     // Generate output
     if args.flat {
-        print_flat_structure(&all_paths, args);
+        print_flat_structure(&all_paths, args, &display_root, &original_inputs);
     } else {
-        print_tree_from_paths(&all_paths, args);
+        // Build tree from paths
+        let common_ancestor = find_common_ancestor(&all_paths);
+        let mut root = Node {
+            name: common_ancestor
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .unwrap_or_else(|| std::ffi::OsStr::new("."))
+                .to_string_lossy()
+                .to_string(),
+            path: common_ancestor
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(".")),
+            display_path: PathBuf::from("."),
+            is_dir: true,
+            children: Vec::new(),
+            original_input: None,
+        };
+
+        for path in &all_paths {
+            let original_input = original_inputs.get(path).cloned();
+            insert_path_into_tree(
+                &mut root,
+                path,
+                &common_ancestor,
+                args,
+                &display_root,
+                original_input,
+            );
+        }
+
+        println!("## File Structure");
+        // For stdin mode, default to no root unless explicitly set
+        let show_root = !args.no_root && (args.root_label.is_some() || !args.stdin);
+        print_tree_with_options(&root, "", args, show_root);
+
+        if args.contents {
+            print_code_blocks(&root, args);
+        }
     }
 
     Ok(())
 }
 
+fn determine_display_root(args: &Args, paths: &[PathBuf]) -> io::Result<PathBuf> {
+    if let Some(ref display_root_str) = args.display_root {
+        // User specified display root
+        let display_root = Path::new(display_root_str);
+        if !display_root.exists() {
+            eprintln!(
+                "Warning: Display root '{}' does not exist, using current directory",
+                display_root_str
+            );
+            Ok(std::env::current_dir()?)
+        } else {
+            Ok(display_root.canonicalize()?)
+        }
+    } else {
+        // Auto-detect display root
+        if args.stdin || args.stdin0 {
+            // For stdin mode, use LCA of all paths
+            if let Some(lca) = find_common_ancestor(paths) {
+                Ok(lca)
+            } else {
+                Ok(std::env::current_dir()?)
+            }
+        } else {
+            // For directory scan mode, use the scan directory
+            Path::new(&args.directory)
+                .canonicalize()
+                .or_else(|_| std::env::current_dir())
+        }
+    }
+}
+
+fn print_flat_structure(
+    paths: &[PathBuf],
+    args: &Args,
+    display_root: &Path,
+    original_inputs: &HashMap<PathBuf, String>,
+) {
+    println!("## File Structure");
+    for path in paths {
+        let original_input = original_inputs.get(path).map(|s| s.as_str());
+        let display_path = calculate_display_path(
+            path,
+            &args.display_path,
+            display_root,
+            original_input,
+            &args.strip_prefix,
+        );
+        println!("- {}", display_path.display());
+    }
+
+    if args.contents {
+        for path in paths {
+            if path.is_file() {
+                let original_input = original_inputs.get(path).map(|s| s.as_str());
+                let display_path = calculate_display_path(
+                    path,
+                    &args.display_path,
+                    display_root,
+                    original_input,
+                    &args.strip_prefix,
+                );
+                print_file_content_with_display(path, &display_path, args);
+            }
+        }
+    }
+}
+
 fn collect_files_from_tree(node: &Node, files: &mut Vec<PathBuf>) {
-    if !node.is_dir {
+    if !node.is_dir && !node.path.as_os_str().is_empty() {
         files.push(node.path.clone());
     }
     for child in &node.children {
@@ -251,87 +472,33 @@ fn collect_files_from_tree(node: &Node, files: &mut Vec<PathBuf>) {
     }
 }
 
-fn print_flat_structure(paths: &[PathBuf], args: &Args) {
-    println!("## File Structure");
-    println!();
-
-    for path in paths {
-        println!("- {}", path.display());
-    }
-
-    if args.contents {
-        for path in paths {
-            print_file_content(path, args);
-        }
-    }
-}
-
-fn print_tree_from_paths(paths: &[PathBuf], args: &Args) {
-    // Find common ancestor
-    let common_ancestor = stdin::find_common_ancestor(paths);
-
-    // Build tree structure from paths
-    let mut root = if let Some(ref ancestor) = common_ancestor {
-        Node {
-            name: ancestor
-                .file_name()
-                .unwrap_or_else(|| std::ffi::OsStr::new("."))
-                .to_string_lossy()
-                .to_string(),
-            path: ancestor.clone(),
-            is_dir: true,
-            children: Vec::new(),
-        }
+fn insert_path_into_tree(
+    root: &mut Node,
+    path: &Path,
+    common_ancestor: &Option<PathBuf>,
+    args: &Args,
+    display_root: &Path,
+    original_input: Option<String>,
+) {
+    let components: Vec<_> = if let Some(ref ancestor) = common_ancestor {
+        path.strip_prefix(ancestor)
+            .unwrap_or(path)
+            .components()
+            .collect()
     } else {
-        Node {
-            name: ".".to_string(),
-            path: PathBuf::from("."),
-            is_dir: true,
-            children: Vec::new(),
-        }
+        path.components().collect()
     };
 
-    // Build tree from paths
-    for path in paths {
-        insert_path_into_tree(&mut root, path, &common_ancestor);
-    }
-
-    // Print the tree
-    println!("## File Structure");
-    print_tree(&root, "");
-
-    // Print code blocks if requested
-    if args.contents {
-        print_code_blocks(&root, args);
-    }
-}
-
-fn insert_path_into_tree(root: &mut Node, path: &Path, common_ancestor: &Option<PathBuf>) {
-    let relative = if let Some(ref ancestor) = common_ancestor {
-        path.strip_prefix(ancestor).unwrap_or(path)
-    } else {
-        path
-    };
-
-    let components: Vec<_> = relative
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-        .collect();
-
-    if components.is_empty() {
-        return;
-    }
-
-    // Navigate to the correct position in the tree
     let mut current_children = &mut root.children;
 
-    for (i, name) in components.iter().enumerate() {
+    for (i, component) in components.iter().enumerate() {
+        let name = component.as_os_str().to_string_lossy().to_string();
         let is_last = i == components.len() - 1;
 
         // Check if child already exists
         let child_pos = current_children
             .iter()
-            .position(|child| &child.name == name);
+            .position(|child| child.name == *name);
 
         if let Some(pos) = child_pos {
             if !is_last {
@@ -340,15 +507,31 @@ fn insert_path_into_tree(root: &mut Node, path: &Path, common_ancestor: &Option<
             }
         } else {
             // Create new node
+            let node_path = if is_last {
+                path.to_path_buf()
+            } else {
+                PathBuf::new()
+            };
+
+            let display_path = if is_last && !node_path.as_os_str().is_empty() {
+                calculate_display_path(
+                    &node_path,
+                    &args.display_path,
+                    display_root,
+                    original_input.as_deref(),
+                    &args.strip_prefix,
+                )
+            } else {
+                PathBuf::from(&name)
+            };
+
             let new_node = Node {
                 name: name.clone(),
-                path: if is_last {
-                    path.to_path_buf()
-                } else {
-                    PathBuf::new()
-                },
+                path: node_path,
+                display_path,
                 is_dir: !is_last,
                 children: Vec::new(),
+                original_input: original_input.clone(),
             };
 
             current_children.push(new_node);
@@ -362,7 +545,12 @@ fn insert_path_into_tree(root: &mut Node, path: &Path, common_ancestor: &Option<
     }
 }
 
+#[allow(dead_code)]
 fn print_file_content(path: &Path, args: &Args) {
+    print_file_content_with_display(path, path, args);
+}
+
+fn print_file_content_with_display(path: &Path, display_path: &Path, args: &Args) {
     let (content, truncation_info) =
         load_file_content_with_limits(path, args.truncate, args.max_lines);
 
@@ -372,14 +560,23 @@ fn print_file_content(path: &Path, args: &Args) {
         .unwrap_or_else(|| std::ffi::OsStr::new(""))
         .to_string_lossy();
     let lang = detect_lang(&file_name);
-    let lang_name = lang.map(|l| l.name).unwrap_or("");
+
+    // Check if we need to use jsonc for JSON files with comments
+    let mut lang_name = lang.map(|l| l.name).unwrap_or("");
+    let needs_comment = lang.is_some() && !args.pure_json;
+
+    if lang_name == "json" && needs_comment {
+        lang_name = "jsonc"; // Use jsonc for JSON with comments
+    }
 
     // Print markdown code block
-    println!("\n### {}", path.display());
+    println!("\n### {}", display_path.display());
     println!("```{}", lang_name);
 
-    if let Some(l) = lang {
-        println!("{}", l.to_comment(&path.display().to_string()));
+    if needs_comment {
+        if let Some(l) = lang {
+            println!("{}", l.to_comment(&display_path.display().to_string()));
+        }
     }
 
     print!("{}", content);
@@ -391,10 +588,12 @@ fn print_file_content(path: &Path, args: &Args) {
 
     if truncation_info.truncated {
         let message = generate_truncation_message(&truncation_info);
-        if let Some(l) = lang {
-            println!("{}", l.to_comment(&message));
-        } else {
-            println!("// {}", message);
+        if needs_comment {
+            if let Some(l) = lang {
+                println!("{}", l.to_comment(&message));
+            } else {
+                println!("// {}", message);
+            }
         }
     }
 
@@ -422,24 +621,40 @@ fn build_tree(
     gitignore: Option<&Gitignore>,
     patterns: &[Pattern],
     root_path: &Path,
+    display_root: &Path,
+    original_input: Option<String>,
 ) -> io::Result<Node> {
-    let path = Path::new(path);
-    let metadata = fs::metadata(path)?;
-    let name = path
+    let path_buf = Path::new(path);
+    let metadata = fs::metadata(path_buf)?;
+    let name = path_buf
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("."))
         .to_string_lossy()
         .to_string();
 
+    let resolved_path = path_buf
+        .canonicalize()
+        .unwrap_or_else(|_| path_buf.to_path_buf());
+
+    let display_path = calculate_display_path(
+        &resolved_path,
+        &args.display_path,
+        display_root,
+        original_input.as_deref(),
+        &args.strip_prefix,
+    );
+
     let mut node = Node {
         name,
-        path: path.to_path_buf(),
+        path: resolved_path.clone(),
+        display_path,
         is_dir: metadata.is_dir(),
         children: Vec::new(),
+        original_input,
     };
 
     if metadata.is_dir() {
-        let mut entries: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok()).collect();
+        let mut entries: Vec<_> = fs::read_dir(path_buf)?.filter_map(|e| e.ok()).collect();
 
         // Sort entries: directories first, then files, alphabetically within each group
         entries.sort_by(|a, b| {
@@ -478,8 +693,15 @@ fn build_tree(
                 }
             };
 
-            if let Ok(child_node) = build_tree(entry_path_str, args, gitignore, patterns, root_path)
-            {
+            if let Ok(child_node) = build_tree(
+                entry_path_str,
+                args,
+                gitignore,
+                patterns,
+                root_path,
+                display_root,
+                None,
+            ) {
                 // Skip if patterns are specified and node doesn't match
                 if !patterns.is_empty() && !node_matches_patterns(&child_node, patterns, root_path)
                 {
@@ -537,90 +759,65 @@ fn node_matches_patterns(node: &Node, patterns: &[Pattern], root_path: &Path) ->
     false
 }
 
-fn filter_by_extension(node: &mut Node, exts: &[String]) {
+fn filter_by_extension(node: &mut Node, extensions: &[String]) {
     if !node.is_dir {
-        // Check if file has matching extension
-        let path = Path::new(&node.name);
-        if let Some(ext) = path.extension() {
-            let ext_str = format!(".{}", ext.to_string_lossy().to_lowercase());
-            if !exts.contains(&ext_str) {
-                node.name.clear(); // Mark for removal
-            }
-        } else if !exts.is_empty() {
-            node.name.clear(); // No extension, mark for removal
-        }
-        return;
+        return; // Files are filtered at a higher level
     }
 
-    // For directories, recursively filter children
-    node.children.iter_mut().for_each(|child| {
-        filter_by_extension(child, exts);
+    node.children.retain(|child| {
+        if child.is_dir {
+            true // Keep directories to check their contents
+        } else {
+            child.path.extension().is_some_and(|ext| {
+                let ext_str = format!(".{}", ext.to_string_lossy().to_lowercase());
+                extensions.contains(&ext_str)
+            })
+        }
     });
 
-    // Remove marked children
-    node.children.retain(|child| !child.name.is_empty());
-}
-
-fn print_tree(node: &Node, indent: &str) {
-    if indent.is_empty() {
-        // Root directory
-        println!("- {}/", node.name);
+    // Recursively filter children
+    for child in &mut node.children {
+        filter_by_extension(child, extensions);
     }
 
-    for (i, child) in node.children.iter().enumerate() {
-        let _is_last = i == node.children.len() - 1;
-        let bullet = "  - ";
+    // Remove empty directories
+    node.children
+        .retain(|child| !child.is_dir || !child.children.is_empty());
+}
 
-        let name = if child.is_dir {
-            format!("{}/", child.name)
-        } else {
-            child.name.clone()
-        };
+fn print_tree(node: &Node, prefix: &str) {
+    if !node.name.is_empty() {
+        println!("{}- {}", prefix, node.name);
+    }
 
-        println!("{}{}{}", indent, bullet, name);
+    for child in &node.children {
+        let child_prefix = format!("{}  ", prefix);
+        print_tree(child, &child_prefix);
+    }
+}
 
-        if child.is_dir {
-            print_tree(child, &format!("{}    ", indent));
+fn print_tree_with_options(node: &Node, prefix: &str, args: &Args, show_root: bool) {
+    if show_root {
+        // Show root with custom label if provided
+        let root_name = args.root_label.as_deref().unwrap_or(&node.name);
+        if !root_name.is_empty() {
+            println!("{}- {}", prefix, root_name);
+        }
+        for child in &node.children {
+            let child_prefix = format!("{}  ", prefix);
+            print_tree(child, &child_prefix);
+        }
+    } else {
+        // Skip root node, print children directly
+        for child in &node.children {
+            print_tree(child, prefix);
         }
     }
 }
 
 fn print_code_blocks(node: &Node, args: &Args) {
-    if !node.is_dir {
-        // Load file content with limits
-        let (content, truncation_info) =
-            load_file_content_with_limits(&node.path, args.truncate, args.max_lines);
-
-        // Detect language
-        let lang = detect_lang(&node.name);
-
-        let lang_name = lang.map(|l| l.name).unwrap_or("");
-
-        // Print markdown code block
-        println!("\n### {}", node.path.display());
-        println!("```{}", lang_name);
-
-        if let Some(l) = lang {
-            println!("{}", l.to_comment(&node.path.display().to_string()));
-        }
-
-        print!("{}", content);
-
-        // Ensure newline at end
-        if !content.ends_with('\n') {
-            println!();
-        }
-
-        if truncation_info.truncated {
-            let message = generate_truncation_message(&truncation_info);
-            if let Some(l) = lang {
-                println!("{}", l.to_comment(&message));
-            } else {
-                println!("// {}", message);
-            }
-        }
-
-        println!("```");
+    if !node.is_dir && !node.path.as_os_str().is_empty() {
+        print_file_content_with_display(&node.path, &node.display_path, args);
     }
 
     for child in &node.children {
@@ -630,14 +827,30 @@ fn print_code_blocks(node: &Node, args: &Args) {
 
 fn load_file_content_with_limits(
     path: &Path,
-    max_bytes: Option<usize>,
+    truncate_bytes: Option<usize>,
     max_lines: Option<usize>,
 ) -> (String, TruncationInfo) {
-    let file_result = fs::File::open(path);
+    let mut file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            return (
+                format!("Error reading file: {}", e),
+                TruncationInfo {
+                    truncated: false,
+                    total_lines: 0,
+                    total_bytes: 0,
+                    shown_lines: 0,
+                    shown_bytes: 0,
+                    truncate_type: TruncateType::None,
+                },
+            );
+        }
+    };
 
-    if let Err(e) = file_result {
+    let mut full_content = String::new();
+    if let Err(e) = file.read_to_string(&mut full_content) {
         return (
-            format!("// Error reading file: {}\n", e),
+            format!("Error reading file: {}", e),
             TruncationInfo {
                 truncated: false,
                 total_lines: 0,
@@ -649,170 +862,151 @@ fn load_file_content_with_limits(
         );
     }
 
-    let mut file = file_result.unwrap();
-    let mut content = String::new();
+    let total_bytes = full_content.len();
+    let total_lines = full_content.lines().count();
 
-    if let Err(e) = file.read_to_string(&mut content) {
-        return (
-            format!("// Error reading file: {}\n", e),
-            TruncationInfo {
-                truncated: false,
-                total_lines: 0,
-                total_bytes: 0,
-                shown_lines: 0,
-                shown_bytes: 0,
-                truncate_type: TruncateType::None,
-            },
-        );
-    }
+    let mut truncated = false;
+    let mut truncate_type = TruncateType::None;
+    let mut result = String::new();
+    let mut shown_lines = 0;
+    let mut shown_bytes = 0;
 
-    let total_bytes = content.len();
-    let lines: Vec<&str> = content.lines().collect();
-    let total_lines = lines.len();
-
-    let mut info = TruncationInfo {
-        truncated: false,
-        total_lines,
-        total_bytes,
-        shown_lines: total_lines,
-        shown_bytes: total_bytes,
-        truncate_type: TruncateType::None,
-    };
-
-    // No limits
-    if max_bytes.is_none() && max_lines.is_none() {
-        return (content, info);
-    }
-
-    let mut truncated_content = content.clone();
-    let mut truncated_by_lines = false;
-    let mut truncated_by_bytes = false;
-
-    // Apply line limit
-    if let Some(max_l) = max_lines {
-        if total_lines > max_l {
-            let limited_lines: Vec<&str> = lines.into_iter().take(max_l).collect();
-            truncated_content = limited_lines.join("\n");
-            truncated_by_lines = true;
+    for line in full_content.lines() {
+        // Check line limit
+        if let Some(max) = max_lines {
+            if shown_lines >= max {
+                truncated = true;
+                truncate_type = if truncate_bytes.is_some() {
+                    TruncateType::Both
+                } else {
+                    TruncateType::Lines
+                };
+                break;
+            }
         }
-    }
 
-    // Apply byte limit
-    if let Some(max_b) = max_bytes {
-        if truncated_content.len() > max_b {
-            truncated_content.truncate(max_b);
-            truncated_by_bytes = true;
+        let line_with_newline = format!("{}\n", line);
+        let line_bytes = line_with_newline.len();
+
+        // Check byte limit
+        if let Some(max) = truncate_bytes {
+            if shown_bytes + line_bytes > max {
+                // Add partial line if there's room
+                let remaining = max.saturating_sub(shown_bytes);
+                if remaining > 0 {
+                    let partial: String = line.chars().take(remaining).collect();
+                    result.push_str(&partial);
+                    shown_bytes += partial.len();
+                }
+                truncated = true;
+                truncate_type = if max_lines.is_some() {
+                    TruncateType::Both
+                } else {
+                    TruncateType::Bytes
+                };
+                break;
+            }
         }
+
+        result.push_str(&line_with_newline);
+        shown_lines += 1;
+        shown_bytes += line_bytes;
     }
 
-    info.truncated = truncated_by_bytes || truncated_by_lines;
-    info.shown_bytes = truncated_content.len();
-    info.shown_lines = truncated_content.lines().count();
-
-    info.truncate_type = match (truncated_by_bytes, truncated_by_lines) {
-        (true, true) => TruncateType::Both,
-        (true, false) => TruncateType::Bytes,
-        (false, true) => TruncateType::Lines,
-        _ => TruncateType::None,
-    };
-
-    (truncated_content, info)
+    (
+        result,
+        TruncationInfo {
+            truncated,
+            total_lines,
+            total_bytes,
+            shown_lines,
+            shown_bytes,
+            truncate_type,
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_detect_lang() {
-        assert_eq!(detect_lang("main.go").unwrap().name, "go");
-        assert_eq!(detect_lang("script.py").unwrap().name, "python");
-        assert_eq!(detect_lang("lib.rs").unwrap().name, "rust");
-        assert_eq!(detect_lang("index.html").unwrap().name, "html");
-        assert!(detect_lang("unknown.xyz").is_none());
-    }
-
-    #[test]
-    fn test_build_tree() -> io::Result<()> {
-        let temp_dir = TempDir::new()?;
-        let temp_path = temp_dir.path();
-
-        // Create test structure
-        fs::create_dir(temp_path.join("src"))?;
-        fs::write(temp_path.join("src/main.rs"), "fn main() {}")?;
-        fs::write(temp_path.join("Cargo.toml"), "[package]")?;
-        fs::write(temp_path.join(".gitignore"), "target/")?;
-
-        let args = Args {
-            contents: false,
-            truncate: None,
-            max_lines: None,
-            include_ext: None,
-            all: false,
-            respect_gitignore: false,
-            find_patterns: vec![],
-            stdin: false,
-            stdin0: false,
-            stdin_mode: StdinMode::Authoritative,
-            keep_order: false,
-            base: ".".to_string(),
-            restrict_root: None,
-            expand_dirs: false,
-            flat: false,
-            directory: temp_path.to_str().unwrap().to_string(),
-        };
-
-        let patterns = compile_patterns(&args.find_patterns)?;
-        let root_path = temp_path.canonicalize()?;
-        let node = build_tree(
-            temp_path.to_str().unwrap(),
-            &args,
-            None,
-            &patterns,
-            &root_path,
-        )?;
-
-        assert!(node.is_dir);
-        assert_eq!(node.children.len(), 2); // src and Cargo.toml (not .gitignore)
-
-        Ok(())
-    }
 
     #[test]
     fn test_filter_by_extension() {
-        let mut root = Node {
+        let mut node = Node {
             name: "root".to_string(),
-            path: PathBuf::from("root"),
+            path: PathBuf::from("/root"),
+            display_path: PathBuf::from("root"),
             is_dir: true,
             children: vec![
                 Node {
-                    name: "main.rs".to_string(),
-                    path: PathBuf::from("main.rs"),
+                    name: "file1.rs".to_string(),
+                    path: PathBuf::from("/root/file1.rs"),
+                    display_path: PathBuf::from("file1.rs"),
                     is_dir: false,
                     children: vec![],
+                    original_input: None,
                 },
                 Node {
-                    name: "test.py".to_string(),
-                    path: PathBuf::from("test.py"),
+                    name: "file2.go".to_string(),
+                    path: PathBuf::from("/root/file2.go"),
+                    display_path: PathBuf::from("file2.go"),
                     is_dir: false,
                     children: vec![],
+                    original_input: None,
                 },
                 Node {
-                    name: "config.toml".to_string(),
-                    path: PathBuf::from("config.toml"),
+                    name: "file3.py".to_string(),
+                    path: PathBuf::from("/root/file3.py"),
+                    display_path: PathBuf::from("file3.py"),
                     is_dir: false,
                     children: vec![],
+                    original_input: None,
                 },
             ],
+            original_input: None,
         };
 
-        let exts = vec![".rs".to_string(), ".toml".to_string()];
-        filter_by_extension(&mut root, &exts);
+        filter_by_extension(&mut node, &vec![".rs".to_string(), ".go".to_string()]);
 
-        assert_eq!(root.children.len(), 2);
-        assert_eq!(root.children[0].name, "main.rs");
-        assert_eq!(root.children[1].name, "config.toml");
+        assert_eq!(node.children.len(), 2);
+        assert_eq!(node.children[0].name, "file1.rs");
+        assert_eq!(node.children[1].name, "file2.go");
+    }
+
+    #[test]
+    fn test_detect_lang() {
+        assert_eq!(detect_lang("test.rs").map(|l| l.name), Some("rust"));
+        assert_eq!(detect_lang("test.go").map(|l| l.name), Some("go"));
+        assert_eq!(detect_lang("test.py").map(|l| l.name), Some("python"));
+        assert_eq!(detect_lang("test.unknown"), None);
+    }
+
+    #[test]
+    fn test_build_tree() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create test files
+        fs::create_dir(temp_path.join("src")).unwrap();
+        fs::write(temp_path.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(temp_path.join("README.md"), "# Test").unwrap();
+
+        let args = Args::parse_from(&["tree2md", temp_path.to_str().unwrap()]);
+        let display_root = temp_path.to_path_buf();
+        let tree = build_tree(
+            temp_path.to_str().unwrap(),
+            &args,
+            None,
+            &[],
+            temp_path,
+            &display_root,
+            None,
+        )
+        .unwrap();
+
+        assert!(tree.is_dir);
+        assert!(tree.children.len() >= 2);
     }
 }

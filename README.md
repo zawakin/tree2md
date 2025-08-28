@@ -125,6 +125,15 @@ rg --files --type rust | tree2md --stdin --stdin-mode merge src
 
 # Use flat format for discrete file collections
 fzf -m | tree2md --stdin --flat -c
+
+# Use relative paths (default in v0.4.0+)
+find src -name "*.json" | tree2md --stdin -c
+
+# Show display root for reproducibility
+git ls-files | tree2md --stdin --show-root
+
+# Strip common prefix from paths
+find ~/projects/myapp -type f | tree2md --stdin --strip-prefix ~/projects
 ```
 
 ## Options
@@ -153,6 +162,19 @@ fzf -m | tree2md --stdin --flat -c
 - `--restrict-root <DIR>` - Ensure all paths are within this directory (security feature)
 - `--expand-dirs` - Expand directories found in stdin to their contents
 - `--flat` - Use flat output format instead of tree structure
+
+### Display Path Options
+
+- `--display-path <relative|absolute|input>` - How to display paths (default: relative)
+  - `relative`: Show paths relative to display root
+  - `absolute`: Show absolute paths
+  - `input`: Show paths as provided in stdin
+- `--display-root <DIR>` - Custom root for relative path display (default: auto-detect via LCA)
+- `--strip-prefix <PREFIX>` - Remove prefix from display paths (can be used multiple times)
+- `--show-root` - Show the display root at the beginning of output
+- `--no-root` - Don't show root node in tree output (default for stdin mode)
+- `--root-label <LABEL>` - Custom label for root node (e.g., ".", "PROJECT_ROOT")
+- `--pure-json` - Keep JSON output pure without comment lines
 
 ## Example Output
 
