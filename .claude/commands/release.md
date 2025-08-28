@@ -34,13 +34,14 @@ This command handles the complete release process for tree2md.
    git commit -m "chore: bump version to vX.Y.Z
 
    <release notes here>
-   
+
    🤖 Generated with [Claude Code](https://claude.ai/code)
-   
+
    Co-Authored-By: Claude <noreply@anthropic.com>"
    ```
 
 6. **Create and Push Tag**
+
    ```bash
    git tag -a vX.Y.Z -m "<comprehensive release description>"
    git push origin main
@@ -67,14 +68,3 @@ GitHub Actions will automatically:
 - Working directory must be clean
 - All tests must pass
 - Version must follow semantic versioning (X.Y.Z)
-
-## Usage:
-
-Just run `/release` and I will:
-1. Analyze recent changes
-2. Suggest version number
-3. Generate release notes
-4. Handle the entire process
-5. Monitor the deployment
-
-You can review and approve each step before proceeding.
