@@ -3,21 +3,95 @@
 [![Crates.io](https://img.shields.io/crates/v/tree2md.svg)](https://crates.io/crates/tree2md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A command-line tool that scans directories and outputs their structure in Markdown format. Can optionally include file contents as code blocks with syntax highlighting.
+**Like the `tree` command, but outputs in Markdown.**
+Scans directories and prints a Markdown-formatted tree. Optionally embed file contents as syntax-highlighted code blocks.
+
+---
+
+## Table of Contents
+- [tree2md](#tree2md)
+  - [Table of Contents](#table-of-contents)
+  - [Quick Start](#quick-start)
+  - [Why tree2md vs. `tree`](#why-tree2md-vs-tree)
+  - [Features](#features)
+  - [Installation](#installation)
+    - [From crates.io](#from-cratesio)
+    - [From source](#from-source)
+    - [Pre-built binaries](#pre-built-binaries)
+  - [Usage](#usage)
+    - [Common recipes](#common-recipes)
+      - [Git-friendly](#git-friendly)
+    - [All options (cheat sheet)](#all-options-cheat-sheet)
+  - [Stdin mode (precise control)](#stdin-mode-precise-control)
+  - [Display \& path controls](#display--path-controls)
+  - [Example output](#example-output)
+  - [Supported languages](#supported-languages)
+  - [Performance \& security](#performance--security)
+  - [Build from source](#build-from-source)
+  - [Contributing](#contributing)
+  - [License](#license)
+
+---
+
+## Quick Start
+
+```bash
+# Install
+cargo install tree2md
+
+# Show directory tree (no file contents)
+tree2md src > PROJECT_STRUCTURE.md
+
+# Include file contents as syntax-highlighted code blocks
+tree2md src -c > PROJECT_STRUCTURE.md
+```
+
+Clipboard helpers:
+
+```bash
+# macOS
+tree2md src -c | pbcopy
+# Linux
+tree2md src -c | xclip -selection clipboard
+# Windows
+tree2md src -c | clip
+```
+
+---
+
+## Why tree2md vs. `tree`
+
+| Capability                            | `tree` | `tree2md` |
+| ------------------------------------- | :----: | :-------: |
+| Output Markdown                       |   ✖︎   |     ✔     |
+| Embed file contents (code blocks)     |   ✖︎   |     ✔     |
+| Syntax highlighting hints             |   ✖︎   |     ✔     |
+| Respect `.gitignore`                  |   ◯\*  |     ✔     |
+| Filter by extension / glob            |    ◯   |     ✔     |
+| Drive via stdin (authoritative/merge) |    △   |     ✔     |
+| Flat output for file collections      |   ✖︎   |     ✔     |
+| Truncate by bytes / lines             |   ✖︎   |     ✔     |
+| Security boundary (`--restrict-root`) |   ✖︎   |     ✔     |
+| Fast, single-binary (Rust)            |    —   |     ✔     |
+
+\* depending on platform/flags; `tree2md` provides explicit `--respect-gitignore`.
+
+---
 
 ## Features
 
-- Generate Markdown-formatted directory trees
-- Include file contents as syntax-highlighted code blocks
-- Filter files by extension
-- Find files using wildcard patterns (glob)
-- Respect `.gitignore` patterns
-- Truncate large files by bytes or lines
-- Support for hidden files and directories
-- Read file paths from stdin for precise control
-- Flat output format for discrete file collections
-- Security boundary enforcement with `--restrict-root`
-- Fast and efficient, written in Rust
+* Markdown-formatted directory trees
+* Optional file contents as fenced code blocks (with language hints)
+* Extension filters and glob patterns
+* Honors `.gitignore` (opt-in)
+* Truncate large files by **bytes** or **lines**
+* Hidden files/dirs support
+* Read paths from **stdin** (newline or NUL-delimited)
+* **Flat** output for discrete file sets
+* Security guardrail with `--restrict-root`
+* Fast & efficient (Rust)
+
+---
 
 ## Installation
 
@@ -33,153 +107,143 @@ cargo install tree2md
 git clone https://github.com/zawakin/tree2md.git
 cd tree2md
 cargo build --release
-# Binary will be at ./target/release/tree2md
+# Binary at: ./target/release/tree2md
 ```
 
 ### Pre-built binaries
 
-Download pre-built binaries from the [releases page](https://github.com/zawakin/tree2md/releases).
+Download from the [releases page](https://github.com/zawakin/tree2md/releases).
 
 Available for:
-- Linux (x86_64)
-- macOS (Apple Silicon)
-- Windows (x86_64)
+
+* Linux (x86\_64)
+* macOS (Apple Silicon)
+* Windows (x86\_64)
+
+---
 
 ## Usage
 
-### Common Use Cases
+### Common recipes
 
 ```bash
-# Copy project structure to clipboard for documentation (macOS)
-tree2md src -c | pbcopy
+# 1) Quick overview without contents
+tree2md .
 
-# Copy project structure to clipboard (Linux)
-tree2md src -c | xclip -selection clipboard
-
-# Copy project structure to clipboard (Windows)
-tree2md src -c | clip
-
-# Generate README documentation
+# 2) Generate README-style docs with contents
 tree2md src -c > PROJECT_STRUCTURE.md
 
-# Quick overview without file contents
-tree2md src | pbcopy
-```
+# 3) Filter by extensions
+tree2md src -e .rs,.toml
 
-### All Options
+# 4) Find with glob patterns (repeatable)
+tree2md -f "*.rs" -f "src/**/*.rs"
 
-```bash
-# Basic usage - output tree structure of current directory
-tree2md
+# 5) Include hidden files and respect .gitignore
+tree2md -a --respect-gitignore
 
-# Scan specific directory
-tree2md /path/to/directory
+# 6) Truncate embedded contents (lines or bytes)
+tree2md -c --max-lines 80
+tree2md -c --truncate 2000
 
-# Include file contents as code blocks
-tree2md -c
-
-# Filter by extensions
-tree2md -e .rs,.toml
-
-# Find files matching wildcard patterns
-tree2md -f "*.rs"                    # All .rs files
-tree2md -f "src/**/*.rs"             # All .rs files under src/
-tree2md -f "*.toml" -f "*.md"        # Multiple patterns
-
-# Include hidden files
-tree2md -a
-
-# Respect .gitignore
-tree2md --respect-gitignore
-
-# Truncate file contents
-tree2md -c --max-lines 50
-tree2md -c --truncate 1000
-
-# Combine options
+# 7) Combine filters + contents + truncation
 tree2md -f "src/**/*.rs" -c --max-lines 100
 ```
 
-### Stdin Mode
-
-Read file paths from stdin for precise control over which files to include:
+#### Git-friendly
 
 ```bash
-# Document only Git-tracked TypeScript files
+# Only Git-tracked TypeScript files
 git ls-files "*.ts" | tree2md --stdin -c
 
-# Document recently changed files
+# Recently changed files
 git diff --name-only HEAD~1 | tree2md --stdin
+```
 
-# Use with find for null-delimited paths (handles spaces/special chars)
-find src -type f -name "*.rs" -print0 | tree2md --stdin0
+### All options (cheat sheet)
 
-# Expand directories found in stdin
-printf '%s\n' src tests | tree2md --stdin --expand-dirs
+**Basic**
 
-# Keep input order (useful for prioritized documentation)
-echo -e "README.md\nsrc/main.rs\nCargo.toml" | tree2md --stdin --keep-order
+* `-c, --contents` — include file contents as code blocks
+* `-t, --truncate <N>` — truncate file content to first **N bytes**
+* `--max-lines <N>` — limit file content to first **N lines**
+* `-e, --include-ext <EXTS>` — comma-separated list (e.g. `.go,.py`)
+* `-f, --find <PATTERN>` — glob pattern (repeatable), e.g. `"src/**/*.rs"`
+* `-a, --all` — include hidden files/dirs
+* `--respect-gitignore` — honor `.gitignore` rules
+* `-h, --help` / `-V, --version`
 
-# Restrict paths to project directory (security)
-rg -l "TODO" | tree2md --stdin --restrict-root "$(pwd)"
+**Stdin mode**
 
-# Merge stdin with directory scan
+* `--stdin` — read newline-delimited paths from stdin
+* `--stdin0` — read NUL-delimited paths from stdin
+* `--stdin-mode <authoritative|merge>` — default: **authoritative**
+* `--keep-order` — preserve stdin order (default is alphabetical)
+* `--base <DIR>` — base directory to resolve relative stdin paths
+* `--restrict-root <DIR>` — ensure all paths stay within this directory
+* `--expand-dirs` — expand directories received via stdin
+* `--flat` — render a flat list (no tree)
+
+**Display & paths**
+
+* `--display-path <relative|absolute|input>` — default: **relative** *(relative is default in v0.4.0+)*
+* `--display-root <DIR>` — custom root for relative display
+* `--strip-prefix <PREFIX>` — remove prefix from display paths (repeatable)
+* `--show-root` — print the display root at the top
+* `--no-root` — omit the root node in tree mode (default in stdin mode)
+* `--root-label <LABEL>` — custom label for the root (e.g. `"."`, `"PROJECT_ROOT"`)
+* `--pure-json` — keep JSON output pure (no comment lines)
+
+---
+
+## Stdin mode (precise control)
+
+Use stdin when you already have an exact file list (CI pipelines, `git ls-files`, `ripgrep`, `find`).
+
+```bash
+# Authoritative: only use files from stdin
+git ls-files "*.ts" | tree2md --stdin -c
+
+# Merge: combine stdin with a directory scan of `src/`
 rg --files --type rust | tree2md --stdin --stdin-mode merge src
 
-# Use flat format for discrete file collections
+# NUL-delimited (handles spaces/newlines in paths)
+find src -type f -name "*.rs" -print0 | tree2md --stdin0
+
+# Expand directories that appear in stdin
+printf '%s\n' src tests | tree2md --stdin --expand-dirs
+
+# Keep stdin order (for prioritized docs)
+echo -e "README.md\nsrc/main.rs\nCargo.toml" | tree2md --stdin --keep-order
+
+# Enforce a project boundary (security)
+rg -l "TODO" | tree2md --stdin --restrict-root "$(pwd)"
+```
+
+**Flat mode** is great for discrete file collections:
+
+```bash
 fzf -m | tree2md --stdin --flat -c
+```
 
-# Use relative paths (default in v0.4.0+)
-find src -name "*.json" | tree2md --stdin -c
+---
 
-# Show display root for reproducibility
-git ls-files | tree2md --stdin --show-root
+## Display & path controls
 
-# Strip common prefix from paths
+```bash
+# Show absolute paths
+tree2md --display-path absolute .
+
+# Custom display root and show it at the top
+tree2md --display-root ~/projects/myapp --show-root ~/projects/myapp
+
+# Strip a common prefix from printed paths
 find ~/projects/myapp -type f | tree2md --stdin --strip-prefix ~/projects
 ```
 
-## Options
+---
 
-### Basic Options
-
-- `-c, --contents` - Include file contents as code blocks
-- `-t, --truncate <N>` - Truncate file content to the first N bytes
-- `--max-lines <N>` - Limit file content to the first N lines
-- `-e, --include-ext <EXTS>` - Comma-separated list of extensions to include (e.g., .go,.py)
-- `-f, --find <PATTERNS>` - Find files matching wildcard patterns (can be used multiple times)
-- `-a, --all` - Include hidden files and directories
-- `--respect-gitignore` - Respect .gitignore files
-- `-h, --help` - Print help information
-- `-V, --version` - Print version information
-
-### Stdin Mode Options
-
-- `--stdin` - Read file paths from stdin (newline-delimited)
-- `--stdin0` - Read file paths from stdin (null-delimited, for paths with spaces)
-- `--stdin-mode <authoritative|merge>` - How to handle stdin input (default: authoritative)
-  - `authoritative`: Use only files from stdin
-  - `merge`: Combine stdin files with directory scan
-- `--keep-order` - Preserve the input order from stdin (default: sort alphabetically)
-- `--base <DIR>` - Base directory for resolving relative paths from stdin (default: current directory)
-- `--restrict-root <DIR>` - Ensure all paths are within this directory (security feature)
-- `--expand-dirs` - Expand directories found in stdin to their contents
-- `--flat` - Use flat output format instead of tree structure
-
-### Display Path Options
-
-- `--display-path <relative|absolute|input>` - How to display paths (default: relative)
-  - `relative`: Show paths relative to display root
-  - `absolute`: Show absolute paths
-  - `input`: Show paths as provided in stdin
-- `--display-root <DIR>` - Custom root for relative path display (default: auto-detect via LCA)
-- `--strip-prefix <PREFIX>` - Remove prefix from display paths (can be used multiple times)
-- `--show-root` - Show the display root at the beginning of output
-- `--no-root` - Don't show root node in tree output (default for stdin mode)
-- `--root-label <LABEL>` - Custom label for root node (e.g., ".", "PROJECT_ROOT")
-- `--pure-json` - Keep JSON output pure without comment lines
-
-## Example Output
+## Example output
 
 ````markdown
 ## File Structure
@@ -207,36 +271,42 @@ pub fn add(a: i32, b: i32) -> i32 {
 ```
 ````
 
-## Supported Languages
+---
 
-The tool automatically detects and applies syntax highlighting for:
+## Supported languages
 
-- Rust (.rs)
-- Go (.go)
-- Python (.py)
-- JavaScript (.js)
-- TypeScript (.ts, .tsx)
-- HTML (.html)
-- CSS (.css, .scss, .sass)
-- SQL (.sql)
-- Shell scripts (.sh)
-- TOML (.toml)
-- YAML (.yaml, .yml)
-- JSON (.json)
-- Markdown (.md)
+Language detection for fenced code blocks (non-exhaustive):
 
-## Building from Source
+* Rust (.rs), Go (.go), Python (.py)
+* JavaScript (.js), TypeScript (.ts, .tsx)
+* HTML (.html), CSS (.css, .scss, .sass)
+* SQL (.sql), Shell (.sh)
+* TOML (.toml), YAML (.yaml, .yml)
+* JSON (.json), Markdown (.md)
+
+---
+
+## Performance & security
+
+* Designed to be fast and memory-efficient.
+* Use `--truncate` / `--max-lines` for very large files.
+* Prefer `--respect-gitignore` to avoid noise.
+* Use `--restrict-root` in scripts/CI to prevent path escapes.
+
+---
+
+## Build from source
 
 Requirements:
-- Rust 1.70 or later
-- Cargo
+
+* Rust **1.70** or later
+* Cargo
 
 ```bash
-# Clone the repository
 git clone https://github.com/zawakin/tree2md.git
 cd tree2md
 
-# Build release version
+# Build release
 cargo build --release
 
 # Run tests
@@ -246,10 +316,14 @@ cargo test
 cargo install --path .
 ```
 
-## License
-
-MIT License
+---
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Issues and PRs are welcome. Please include a clear description and, if possible, tests.
+
+---
+
+## License
+
+MIT License
