@@ -17,7 +17,7 @@ use utils::{
     TruncateType, TruncationInfo,
 };
 
-const VERSION: &str = "0.4.0";
+const VERSION: &str = "0.4.1";
 
 #[derive(Debug, Clone, ValueEnum)]
 enum StdinMode {
