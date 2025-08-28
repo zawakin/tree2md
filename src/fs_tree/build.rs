@@ -1,19 +1,31 @@
 use super::node::Node;
 use crate::cli::Args;
-use crate::filter::path_matches_any_pattern;
+use crate::matcher::{MatcherEngine, MatchSpec, RelPath, Selection};
 use crate::util::path::calculate_display_path;
-use glob::Pattern;
 use ignore::WalkBuilder;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Build tree using WalkBuilder for unified gitignore support
+/// Build tree using WalkBuilder for unified gitignore support with MatcherEngine
 pub fn build_tree(
     path: &str,
     args: &Args,
-    patterns: &[Pattern],
+    patterns: &[glob::Pattern],
+    root_path: &Path,
+    display_root: &Path,
+) -> io::Result<Node> {
+    // Convert old Pattern API to new MatchSpec API
+    let spec = MatchSpec::from_args(args);
+    build_tree_with_spec(path, args, &spec, root_path, display_root)
+}
+
+/// Build tree using the MatcherEngine architecture
+pub fn build_tree_with_spec(
+    path: &str,
+    args: &Args,
+    spec: &MatchSpec,
     root_path: &Path,
     display_root: &Path,
 ) -> io::Result<Node> {
@@ -41,19 +53,23 @@ pub fn build_tree(
         Node::new(name, resolved_path.clone(), metadata.is_dir()).with_display_path(display_path);
 
     if metadata.is_dir() {
-        // Use WalkBuilder for recursive directory traversal with gitignore support
+        // Compile the matcher engine
+        let matcher = MatcherEngine::compile(spec, root_path)?;
+        
+        // Use WalkBuilder for recursive directory traversal
         let mut walker = WalkBuilder::new(path);
         walker
             .hidden(!args.all)
-            .git_ignore(args.respect_gitignore)
-            .git_global(args.respect_gitignore)
-            .git_exclude(args.respect_gitignore)
-            .parents(args.respect_gitignore)
-            .ignore(args.respect_gitignore)
+            .git_ignore(false)  // We handle gitignore in MatcherEngine
+            .git_global(false)
+            .git_exclude(false)
+            .parents(false)
+            .ignore(false)
             .max_depth(None);
 
         // Build a map of paths to nodes for efficient tree construction
         let mut nodes_map: HashMap<PathBuf, Node> = HashMap::new();
+        let mut pruned_dirs: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
 
         for entry in walker.build() {
             let entry = match entry {
@@ -74,18 +90,45 @@ pub fn build_tree(
                 continue;
             }
 
+            // Check if this path is under a pruned directory
+            let is_under_pruned = pruned_dirs.iter().any(|pruned| {
+                entry_path.starts_with(pruned)
+            });
+            
+            if is_under_pruned {
+                continue;
+            }
+
             let entry_metadata = match entry.metadata() {
                 Ok(m) => m,
                 Err(_) => continue,
             };
 
-            // Apply pattern filtering only to files
-            // Directories are always kept so children can attach properly in the tree
-            if entry_metadata.is_file()
-                && !patterns.is_empty()
-                && !path_matches_patterns(entry_path, patterns, root_path)
-            {
-                continue;
+            // Create RelPath for matching
+            let rel_path = match RelPath::from_root_rel(entry_path, root_path) {
+                Some(rp) => rp,
+                None => continue,
+            };
+
+            // Apply matcher engine selection
+            let selection = if entry_metadata.is_dir() {
+                matcher.select_dir(&rel_path)
+            } else {
+                matcher.select_file(&rel_path)
+            };
+
+            match selection {
+                Selection::PruneDir => {
+                    // Mark this directory as pruned so we skip its children
+                    pruned_dirs.insert(entry_path.to_path_buf());
+                    continue;
+                }
+                Selection::Exclude => {
+                    continue;
+                }
+                Selection::Include => {
+                    // Include this file/dir in the tree
+                }
             }
 
             let entry_name = entry_path
@@ -114,9 +157,10 @@ pub fn build_tree(
 
         // Build the tree structure from the flat map
         build_tree_from_map(&mut root_node, &nodes_map, path_buf)?;
-
-        // Remove empty directories when patterns are specified
-        if !patterns.is_empty() {
+        
+        // With early pruning, we shouldn't need to remove empty directories
+        // But we can keep this as a safety measure if include rules are used
+        if spec.has_includes() {
             remove_empty_directories(&mut root_node);
         }
     }
@@ -124,7 +168,7 @@ pub fn build_tree(
     Ok(root_node)
 }
 
-pub fn build_tree_from_map(
+fn build_tree_from_map(
     parent: &mut Node,
     nodes_map: &HashMap<PathBuf, Node>,
     base_path: &Path,
@@ -166,29 +210,6 @@ pub fn build_tree_from_map(
     Ok(())
 }
 
-fn path_matches_patterns(path: &Path, patterns: &[Pattern], root_path: &Path) -> bool {
-    if patterns.is_empty() {
-        return false;
-    }
-
-    // First try direct strip (in case path is already absolute)
-    if let Ok(relative_path) = path.strip_prefix(root_path) {
-        let path_str = relative_path.to_string_lossy().replace('\\', "/");
-        return path_matches_any_pattern(&path_str, patterns);
-    }
-
-    // If that fails, canonicalize the path and try again
-    // This handles the case where entry_path is relative but root_path is absolute
-    if let Ok(canonical_path) = path.canonicalize() {
-        if let Ok(relative_path) = canonical_path.strip_prefix(root_path) {
-            let path_str = relative_path.to_string_lossy().replace('\\', "/");
-            return path_matches_any_pattern(&path_str, patterns);
-        }
-    }
-
-    false
-}
-
 /// Remove empty directories from the tree
 fn remove_empty_directories(node: &mut Node) {
     if !node.is_dir {
@@ -205,6 +226,146 @@ fn remove_empty_directories(node: &mut Node) {
     // Remove empty directory children
     node.children
         .retain(|child| !child.is_dir || !child.children.is_empty());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::Args;
+    use crate::matcher::MatchSpec;
+    use clap::Parser;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_matcher_engine_integration() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create test structure
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn lib() {}").unwrap();
+        fs::write(root.join("src/test.txt"), "test").unwrap();
+        
+        fs::create_dir_all(root.join("target/debug")).unwrap();
+        fs::write(root.join("target/debug/app"), "binary").unwrap();
+        
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".gitignore"), "target/").unwrap();
+
+        let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
+        
+        // Test with extension filter
+        let spec = MatchSpec::new()
+            .with_include_ext(vec![".rs".to_string()]);
+        
+        let display_root = root.to_path_buf();
+        let tree = build_tree_with_spec(
+            root.to_str().unwrap(),
+            &args,
+            &spec,
+            root,
+            &display_root,
+        )
+        .unwrap();
+
+        // Should have src directory
+        let src = tree.children.iter().find(|n| n.name == "src");
+        assert!(src.is_some(), "src directory should exist");
+        
+        let src = src.unwrap();
+        // Should have two .rs files but not .txt
+        assert_eq!(src.children.len(), 2, "Should have two .rs files");
+        assert!(src.children.iter().any(|n| n.name == "main.rs"));
+        assert!(src.children.iter().any(|n| n.name == "lib.rs"));
+        assert!(!src.children.iter().any(|n| n.name == "test.txt"));
+        
+        // target directory should be pruned (no matching files)
+        assert!(tree.children.iter().find(|n| n.name == "target").is_none());
+    }
+
+    #[test]
+    fn test_gitignore_pruning() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create test structure with gitignore
+        fs::write(root.join(".gitignore"), "target/\n*.tmp").unwrap();
+        
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        
+        fs::create_dir_all(root.join("target/debug")).unwrap();
+        fs::write(root.join("target/debug/app"), "binary").unwrap();
+        
+        fs::write(root.join("temp.tmp"), "temporary").unwrap();
+        fs::write(root.join("data.txt"), "data").unwrap();
+
+        let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
+        
+        // Test with gitignore enabled
+        let spec = MatchSpec::new()
+            .with_gitignore(true);
+        
+        let display_root = root.to_path_buf();
+        let tree = build_tree_with_spec(
+            root.to_str().unwrap(),
+            &args,
+            &spec,
+            root,
+            &display_root,
+        )
+        .unwrap();
+
+        // Should have src and data.txt, but not target or temp.tmp
+        assert!(tree.children.iter().any(|n| n.name == "src"));
+        assert!(tree.children.iter().any(|n| n.name == "data.txt"));
+        assert!(!tree.children.iter().any(|n| n.name == "target"));
+        assert!(!tree.children.iter().any(|n| n.name == "temp.tmp"));
+    }
+
+    #[test]
+    fn test_glob_patterns() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create nested structure
+        fs::create_dir_all(root.join("src/module")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(root.join("src/module/lib.rs"), "pub fn lib() {}").unwrap();
+        fs::write(root.join("test.rs"), "test").unwrap();
+        fs::write(root.join("README.md"), "readme").unwrap();
+
+        let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
+        
+        // Test with glob pattern
+        let spec = MatchSpec::new()
+            .with_include_glob(vec!["src/**/*.rs".to_string(), "*.md".to_string()]);
+        
+        let display_root = root.to_path_buf();
+        let tree = build_tree_with_spec(
+            root.to_str().unwrap(),
+            &args,
+            &spec,
+            root,
+            &display_root,
+        )
+        .unwrap();
+
+        // Should have README.md at root
+        assert!(tree.children.iter().any(|n| n.name == "README.md"));
+        
+        // Should NOT have test.rs at root (doesn't match pattern)
+        assert!(!tree.children.iter().any(|n| n.name == "test.rs"));
+        
+        // Should have src with nested structure
+        let src = tree.children.iter().find(|n| n.name == "src").unwrap();
+        assert!(src.children.iter().any(|n| n.name == "main.rs"));
+        
+        let module = src.children.iter().find(|n| n.name == "module").unwrap();
+        assert!(module.children.iter().any(|n| n.name == "lib.rs"));
+    }
 }
 
 pub fn insert_path_into_tree(
@@ -275,240 +436,3 @@ pub fn insert_path_into_tree(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cli::Args;
-    use clap::Parser;
-    use std::fs;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_pattern_filtering_keeps_directories() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
-
-        // Create nested structure
-        fs::create_dir_all(root.join("src/a/b")).unwrap();
-        fs::write(root.join("src/a/b/test.rs"), "fn main() {}").unwrap();
-        fs::write(root.join("src/a/b/data.txt"), "data").unwrap();
-
-        let args = Args::parse_from(&["tree2md", root.to_str().unwrap(), "-f", "**/*.rs"]);
-        let patterns = crate::filter::compile_patterns(&args.find_patterns).unwrap();
-        let display_root = root.to_path_buf();
-
-        let tree = build_tree(
-            root.to_str().unwrap(),
-            &args,
-            &patterns,
-            root,
-            &display_root,
-        )
-        .unwrap();
-
-        // Verify src directory exists
-        let src = tree.children.iter().find(|n| n.name == "src");
-        assert!(src.is_some(), "src directory should exist");
-
-        let src = src.unwrap();
-        assert!(src.is_dir);
-
-        // Verify a directory exists under src
-        let a = src.children.iter().find(|n| n.name == "a");
-        assert!(a.is_some(), "a directory should exist");
-
-        let a = a.unwrap();
-        assert!(a.is_dir);
-
-        // Verify b directory exists under a
-        let b = a.children.iter().find(|n| n.name == "b");
-        assert!(b.is_some(), "b directory should exist");
-
-        let b = b.unwrap();
-        assert!(b.is_dir);
-
-        // Verify only .rs file exists, not .txt
-        assert_eq!(b.children.len(), 1);
-        assert_eq!(b.children[0].name, "test.rs");
-    }
-
-    #[test]
-    fn test_empty_directories_removed_with_patterns() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
-
-        // Create structure with empty directories
-        fs::create_dir_all(root.join("empty/nested/deep")).unwrap();
-        fs::create_dir_all(root.join("has_match")).unwrap();
-        fs::write(root.join("has_match/test.rs"), "fn main() {}").unwrap();
-
-        let args = Args::parse_from(&["tree2md", root.to_str().unwrap(), "-f", "**/*.rs"]);
-        let patterns = crate::filter::compile_patterns(&args.find_patterns).unwrap();
-        let display_root = root.to_path_buf();
-
-        let tree = build_tree(
-            root.to_str().unwrap(),
-            &args,
-            &patterns,
-            root,
-            &display_root,
-        )
-        .unwrap();
-
-        // Verify empty directories are removed
-        assert!(
-            tree.children.iter().find(|n| n.name == "empty").is_none(),
-            "empty directory tree should be removed"
-        );
-
-        // Verify directory with matching file is kept
-        assert!(
-            tree.children
-                .iter()
-                .find(|n| n.name == "has_match")
-                .is_some(),
-            "directory with matching file should be kept"
-        );
-    }
-
-    #[test]
-    fn test_single_wildcard_pattern() {
-        // Test that '*.rs' pattern now works recursively (after normalization)
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
-
-        // Create files in root directory
-        fs::write(root.join("main.rs"), "fn main() {}").unwrap();
-        fs::write(root.join("lib.rs"), "pub fn lib() {}").unwrap();
-        fs::write(root.join("test.txt"), "text file").unwrap();
-
-        // Create files in subdirectory
-        fs::create_dir(root.join("src")).unwrap();
-        fs::write(root.join("src/module.rs"), "mod module;").unwrap();
-        fs::write(root.join("src/data.json"), "{}").unwrap();
-
-        let args = Args::parse_from(&["tree2md", root.to_str().unwrap(), "-f", "*.rs"]);
-        let patterns = crate::filter::compile_patterns(&args.find_patterns).unwrap();
-        let display_root = root.to_path_buf();
-
-        let tree = build_tree(
-            root.to_str().unwrap(),
-            &args,
-            &patterns,
-            root,
-            &display_root,
-        )
-        .unwrap();
-
-        // Should find .rs files in root directory
-        let main_rs = tree.children.iter().find(|n| n.name == "main.rs");
-        assert!(
-            main_rs.is_some(),
-            "main.rs should be found with '*.rs' pattern"
-        );
-
-        let lib_rs = tree.children.iter().find(|n| n.name == "lib.rs");
-        assert!(
-            lib_rs.is_some(),
-            "lib.rs should be found with '*.rs' pattern"
-        );
-
-        // Should NOT find .txt file
-        let txt = tree.children.iter().find(|n| n.name == "test.txt");
-        assert!(
-            txt.is_none(),
-            "test.txt should not be found with '*.rs' pattern"
-        );
-
-        // src directory should NOW be present with the .rs file inside
-        // '*.rs' now matches files recursively after normalization
-        let src = tree.children.iter().find(|n| n.name == "src");
-        assert!(
-            src.is_some(),
-            "src directory should exist when it has matching files (recursive)"
-        );
-        
-        let src = src.unwrap();
-        assert!(
-            src.children.iter().any(|n| n.name == "module.rs"),
-            "module.rs should be found in src/ (recursive matching)"
-        );
-        assert!(
-            !src.children.iter().any(|n| n.name == "data.json"),
-            "data.json should not be found"
-        );
-    }
-
-    #[test]
-    fn test_wildcard_pattern_from_subdirectory() {
-        // Test '*.rs' when starting from a subdirectory (like 'tree2md src -f "*.rs"')
-        // Now should match recursively
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
-
-        // Create src directory structure
-        let src_dir = root.join("src");
-        fs::create_dir(&src_dir).unwrap();
-
-        // Create files directly in src/
-        fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
-        fs::write(src_dir.join("lib.rs"), "pub fn lib() {}").unwrap();
-        fs::write(src_dir.join("test.txt"), "text file").unwrap();
-
-        // Create nested directory with files
-        fs::create_dir(src_dir.join("module")).unwrap();
-        fs::write(src_dir.join("module/mod.rs"), "mod module;").unwrap();
-        fs::write(src_dir.join("module/data.json"), "{}").unwrap();
-
-        // Run tree2md on the src directory (not root)
-        let args = Args::parse_from(&["tree2md", src_dir.to_str().unwrap(), "-f", "*.rs"]);
-        let patterns = crate::filter::compile_patterns(&args.find_patterns).unwrap();
-        let display_root = src_dir.clone();
-
-        let tree = build_tree(
-            src_dir.to_str().unwrap(),
-            &args,
-            &patterns,
-            &src_dir, // Use src_dir as the root_path for pattern matching
-            &display_root,
-        )
-        .unwrap();
-
-        // Should find .rs files directly in src/
-        let main_rs = tree.children.iter().find(|n| n.name == "main.rs");
-        assert!(
-            main_rs.is_some(),
-            "main.rs in src/ should be found with '*.rs' pattern"
-        );
-
-        let lib_rs = tree.children.iter().find(|n| n.name == "lib.rs");
-        assert!(
-            lib_rs.is_some(),
-            "lib.rs in src/ should be found with '*.rs' pattern"
-        );
-
-        // Should NOT find .txt file
-        let txt = tree.children.iter().find(|n| n.name == "test.txt");
-        assert!(
-            txt.is_none(),
-            "test.txt should not be found with '*.rs' pattern"
-        );
-
-        // module directory should NOW be present with mod.rs inside (recursive matching)
-        let module = tree.children.iter().find(|n| n.name == "module");
-        assert!(
-            module.is_some(),
-            "module directory should be present with '*.rs' recursive matching"
-        );
-        
-        let module = module.unwrap();
-        assert!(
-            module.children.iter().any(|n| n.name == "mod.rs"),
-            "mod.rs should be found in module/ (recursive)"
-        );
-        assert!(
-            !module.children.iter().any(|n| n.name == "data.json"),
-            "data.json should not be found"
-        );
-    }
-}

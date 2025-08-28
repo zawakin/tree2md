@@ -1,9 +1,7 @@
 pub mod build;
-pub mod build_v2;
 pub mod node;
 pub mod print;
 
 pub use build::{build_tree, insert_path_into_tree};
-pub use build_v2::build_tree_v2;
 pub use node::Node;
 pub use print::{print_code_blocks, print_flat_structure, print_tree_with_options};
