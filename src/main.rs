@@ -1,6 +1,5 @@
 mod cli;
 mod content;
-mod errors;
 mod filter;
 mod fs_tree;
 mod input;

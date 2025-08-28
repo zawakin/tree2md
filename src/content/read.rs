@@ -5,6 +5,9 @@ use std::fs;
 use std::io::{Read, Seek};
 use std::path::Path;
 
+/// Size of chunk to read for binary file detection (8KB)
+const PROBE_BYTES: usize = 8192;
+
 pub fn load_file_content_with_limits(
     path: &Path,
     truncate_bytes: Option<usize>,
@@ -28,8 +31,9 @@ pub fn load_file_content_with_limits(
         }
     };
 
-    // Read first 8KB to detect binary content
-    let mut buffer = vec![0; 8192.min(file.metadata().map(|m| m.len() as usize).unwrap_or(8192))];
+    // Read first chunk to detect binary content
+    let cap = PROBE_BYTES.min(file.metadata().map(|m| m.len() as usize).unwrap_or(PROBE_BYTES));
+    let mut buffer = vec![0; cap];
     let bytes_read = match file.read(&mut buffer) {
         Ok(n) => n,
         Err(e) => {

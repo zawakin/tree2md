@@ -166,21 +166,9 @@ pub fn build_tree_from_map(
 }
 
 fn path_matches_patterns(path: &Path, patterns: &[Pattern], root_path: &Path) -> bool {
-    // For files, check if the relative path matches any pattern
-    let check_path = path
-        .canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf());
-
-    if let Ok(relative_path) = check_path.strip_prefix(root_path) {
+    // Try to get relative path without canonicalize for performance
+    if let Ok(relative_path) = path.strip_prefix(root_path) {
         // Convert path to use forward slashes for consistent pattern matching
-        let path_str = relative_path.to_string_lossy().replace('\\', "/");
-        for pattern in patterns {
-            if pattern.matches(&path_str) {
-                return true;
-            }
-        }
-    } else if let Ok(relative_path) = path.strip_prefix(root_path) {
-        // Fallback: try stripping prefix from non-canonical path
         let path_str = relative_path.to_string_lossy().replace('\\', "/");
         for pattern in patterns {
             if pattern.matches(&path_str) {
