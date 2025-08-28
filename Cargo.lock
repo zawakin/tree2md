@@ -391,6 +391,7 @@ dependencies = [
  "clap",
  "glob",
  "ignore",
+ "once_cell",
  "pathdiff",
  "tempfile",
 ]
