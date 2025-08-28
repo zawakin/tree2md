@@ -82,13 +82,45 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      
+      # Extract release notes from CHANGELOG.md for this version
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          TAG="${GITHUB_REF_NAME}"           # e.g. v0.5.0
+          VER="${TAG#v}"                     # e.g. 0.5.0
+          
+          # Extract the section for this version from CHANGELOG.md
+          awk -v ver="$VER" '
+            $0 ~ "^## \\[" ver "\\]" {p=1; next}
+            p && $0 ~ "^## \\[" {exit}
+            p && $0 ~ "^\\[Unreleased\\]:" {exit}
+            p
+          ' CHANGELOG.md > RELEASE_NOTES.md
+          
+          # Add header with version and date
+          echo "## tree2md ${TAG}" > RELEASE_NOTES_FINAL.md
+          echo "" >> RELEASE_NOTES_FINAL.md
+          cat RELEASE_NOTES.md >> RELEASE_NOTES_FINAL.md
+          
+          echo "---- RELEASE NOTES ----"
+          cat RELEASE_NOTES_FINAL.md
+      
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          name: "tree2md ${{ github.ref_name }}"
           files: artifacts/**/tree2md-*
+          body_path: RELEASE_NOTES_FINAL.md
+          generate_release_notes: true
+          append_body: true
           draft: false
           prerelease: false
 

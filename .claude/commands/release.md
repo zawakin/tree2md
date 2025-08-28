@@ -43,7 +43,7 @@ This command handles the complete release process for tree2md.
 6. **Create and Push Tag**
 
    ```bash
-   git tag -a vX.Y.Z -m "<comprehensive release description>"
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
    git push origin main
    git push origin vX.Y.Z
    ```
