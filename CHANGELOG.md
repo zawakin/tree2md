@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-08-28
+### Changed
+- **BREAKING**: Removed file name comments from code blocks
+  - File names are no longer duplicated as comments inside code blocks
+  - Markdown headers already provide file identification
+  - Improves copy-paste usability and reduces token count for LLM usage
+- **BREAKING**: Removed `--pure-json` option
+  - JSON files now always use standard `json` language tag
+  - Simplifies output format and removes unnecessary complexity
+- Enhanced README documentation
+  - Added feature comparison table vs `tree` command
+  - Improved structure with table of contents
+  - Added Quick Start section with clipboard examples
+  - Added crates.io and license badges
+
+### Notes
+- This release contains breaking changes to the output format
+- The cleaner output aligns with industry standards (GitHub, GitLab)
+- Tests added to ensure proper output formatting
+
 ## [0.4.1] - 2025-08-28
 ### Added
 - Display path control options for improved output flexibility
@@ -149,7 +169,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/zawakin/tree2md/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/zawakin/tree2md/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/zawakin/tree2md/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/zawakin/tree2md/compare/v0.3.1...v0.3.2
