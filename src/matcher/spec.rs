@@ -86,7 +86,7 @@ impl MatchSpec {
             include_ext,
             include_glob,
             exclude_glob: Vec::new(), // Could be extended with --exclude flag
-            respect_gitignore: args.respect_gitignore,
+            respect_gitignore: !args.no_gitignore,
             case_sensitive: true, // Could be extended with --ignore-case flag
             keep_dirs_until_pruned: true,
             include_hidden: args.all,

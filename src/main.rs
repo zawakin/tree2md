@@ -25,12 +25,9 @@ fn main() -> io::Result<()> {
     }
 
     // Determine display root
-    let display_root = determine_display_root(&args, &[PathBuf::from(&args.directory)])?;
-
-    // Show root if requested
-    if args.show_root {
-        println!("Display root: {}\n", display_root.display());
-    }
+    let display_root = Path::new(&args.directory)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&args.directory));
 
     // Get the root path for pattern matching
     let root_path = Path::new(&args.directory)
@@ -38,11 +35,8 @@ fn main() -> io::Result<()> {
         .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
 
     // Create args with effective gitignore setting for directory scan
-    let mut effective_args = args.clone();
-    effective_args.respect_gitignore = args.effective_gitignore(false);
-
     // Build tree using unified WalkBuilder approach
-    let root_node = build_tree(&args.directory, &effective_args, &root_path, &display_root)?;
+    let root_node = build_tree(&args.directory, &args, &root_path, &display_root)?;
 
     // Print structure based on format preference
     println!("## File Structure");
@@ -67,8 +61,8 @@ fn main() -> io::Result<()> {
         }
     } else {
         // Print tree structure
-        // For non-stdin mode, show root by default unless --no-root is specified
-        let show_root = !args.no_root;
+        // Show root only if --root-label is specified
+        let show_root = args.root_label.is_some();
         print_tree_with_options(&root_node, "", &args, show_root);
 
         // Print code blocks if requested
@@ -81,31 +75,18 @@ fn main() -> io::Result<()> {
 }
 
 fn handle_stdin_mode(args: &Args) -> io::Result<()> {
-    // Decide base_dir for resolving relative paths from stdin.
-    // If --base is not explicitly set (defaults to "."),
-    // use the positional directory argument so that tests like
-    // `echo . | tree2md <TEMP_ROOT> --stdin --expand-dirs`
-    // resolve '.' relative to <TEMP_ROOT>, not the process CWD.
-    let base_dir = if args.base == "." {
-        Path::new(&args.directory)
-            .canonicalize()
-            .unwrap_or_else(|_| PathBuf::from(&args.directory))
-    } else {
-        PathBuf::from(&args.base)
-    };
+    // Use the positional directory argument as base for resolving relative paths from stdin
+    let base_dir = Path::new(&args.directory)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&args.directory));
 
     let stdin_config = StdinConfig {
         base_dir,
         restrict_root: args.restrict_root.as_ref().map(PathBuf::from),
         expand_dirs: args.expand_dirs,
-        // When expanding dirs, respect gitignore by default (treat expansion like scanning)
-        // The directories themselves are kept (stdin authoritative) but contents are filtered
+        // When expanding dirs, respect gitignore by default (unless --no-gitignore)
         respect_gitignore: if args.expand_dirs {
-            if args.no_gitignore {
-                false
-            } else {
-                true // Default: respect gitignore when expanding (or explicitly set via --respect-gitignore)
-            }
+            !args.no_gitignore
         } else {
             false // Not expanding, so this field doesn't matter
         },
@@ -131,13 +112,8 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
     // Always use authoritative mode (stdin only) and preserve input order
     let all_paths = file_paths;
 
-    // Determine display root
-    let display_root = determine_display_root(args, &all_paths)?;
-
-    // Show root if requested
-    if args.show_root {
-        println!("Display root: {}\n", display_root.display());
-    }
+    // Use current directory as display root for stdin mode
+    let display_root = std::env::current_dir()?;
 
     // Extension filtering is already handled during stdin processing/expansion
 
@@ -176,8 +152,8 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         }
 
         println!("## File Structure");
-        // For stdin mode, default to no root unless explicitly set
-        let show_root = !args.no_root && (args.root_label.is_some() || !args.stdin);
+        // Show root only if --root-label is specified
+        let show_root = args.root_label.is_some();
         print_tree_with_options(&root, "", args, show_root);
 
         if args.contents {
@@ -188,36 +164,6 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
     Ok(())
 }
 
-fn determine_display_root(args: &Args, paths: &[PathBuf]) -> io::Result<PathBuf> {
-    if let Some(ref display_root_str) = args.display_root {
-        // User specified display root
-        let display_root = Path::new(display_root_str);
-        if !display_root.exists() {
-            eprintln!(
-                "Warning: Display root '{}' does not exist, using current directory",
-                display_root_str
-            );
-            Ok(std::env::current_dir()?)
-        } else {
-            Ok(display_root.canonicalize()?)
-        }
-    } else {
-        // Auto-detect display root
-        if args.stdin {
-            // For stdin mode, use LCA of all paths
-            if let Some(lca) = find_common_ancestor(paths) {
-                Ok(lca)
-            } else {
-                Ok(std::env::current_dir()?)
-            }
-        } else {
-            // For directory scan mode, use the scan directory
-            Path::new(&args.directory)
-                .canonicalize()
-                .or_else(|_| std::env::current_dir())
-        }
-    }
-}
 
 fn collect_paths_from_node(node: &Node, paths: &mut Vec<PathBuf>) {
     if !node.is_dir && !node.path.as_os_str().is_empty() {

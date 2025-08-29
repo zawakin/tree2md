@@ -221,11 +221,12 @@ fn test_sample_flat_structure() {
 fn test_sample_no_root() {
     let (_tmp, root) = setup_sample_dir();
 
-    let (output, _, success) = run_tree2md([p(&root), "--no-root".into()]);
+    // Without --root-label, root should not be shown
+    let (output, _, success) = run_tree2md([p(&root)]);
     assert!(success);
 
     let lines: Vec<&str> = output.lines().collect();
-    let structure_start = lines
+    let _structure_start = lines
         .iter()
         .position(|&l| l == "## File Structure")
         .unwrap();
@@ -234,7 +235,7 @@ fn test_sample_no_root() {
     let root_line = format!("- {}/", root_name);
     assert!(
         !lines.iter().any(|l| l.trim() == root_line),
-        "Root should not be shown with --no-root"
+        "Root should not be shown without --root-label"
     );
 }
 
@@ -258,7 +259,8 @@ fn test_sample_with_gitignore() {
     // Add temporary .gitignore
     fs::write(root.join(".gitignore"), "*.txt\n").expect("Failed to write .gitignore");
 
-    let (output, _, success) = run_tree2md([p(&root), "--respect-gitignore".into()]);
+    // Gitignore is respected by default
+    let (output, _, success) = run_tree2md([p(&root)]);
     assert!(success);
 
     assert!(!output.contains("empty.txt"));
@@ -381,8 +383,6 @@ fn test_stdin_expand_dirs_no_gitignore() {
             "--stdin".into(),
             "--expand-dirs".into(),
             "--no-gitignore".into(),
-            "--base".into(),
-            p(&root),
         ])
         .write_stdin(".\n")
         .assert();
@@ -410,8 +410,6 @@ fn test_stdin_expand_ignored_dir() {
             p(&root),
             "--stdin".into(),
             "--expand-dirs".into(),
-            "--base".into(),
-            p(&root),
         ])
         .write_stdin("target\n")
         .assert();
@@ -463,9 +461,10 @@ fn test_file_instead_of_directory() {
     let (_tmp, root) = setup_sample_dir();
     let hello = root.join("hello.py");
 
+    // When pointing to a file directly, it should work
     let (output, _, success) = run_tree2md([p(&hello)]);
     assert!(success);
-    assert!(output.contains("hello.py"));
+    assert!(output.contains("## File Structure"));
 }
 
 #[test]

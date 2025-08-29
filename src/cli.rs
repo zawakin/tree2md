@@ -40,19 +40,8 @@ pub struct Args {
     #[arg(short = 'a', long = "all")]
     pub all: bool,
 
-    /// Force respect .gitignore files (default for directory scans)
-    #[arg(
-        long = "respect-gitignore",
-        help = "Force respect .gitignore files in all modes"
-    )]
-    pub respect_gitignore: bool,
-
-    /// Do not respect .gitignore files (overrides default behavior)
-    #[arg(
-        long = "no-gitignore",
-        conflicts_with = "respect_gitignore",
-        help = "Ignore .gitignore files and include all files"
-    )]
+    /// Do not respect .gitignore files (default: respect .gitignore)
+    #[arg(long = "no-gitignore", help = "Ignore .gitignore files and include all files")]
     pub no_gitignore: bool,
 
     /// Find files matching wildcard patterns (e.g., "*.rs", "src/**/*.go")
@@ -63,10 +52,6 @@ pub struct Args {
     /// Read file paths from stdin (newline-delimited)
     #[arg(long = "stdin")]
     pub stdin: bool,
-
-    /// Base directory for resolving relative paths from stdin
-    #[arg(long = "base", default_value = ".")]
-    pub base: String,
 
     /// Restrict all paths to be within this directory
     #[arg(long = "restrict-root")]
@@ -84,23 +69,11 @@ pub struct Args {
     #[arg(long = "display-path", value_enum, default_value = "relative")]
     pub display_path: DisplayPathMode,
 
-    /// Root directory for relative path display (default: auto-detect)
-    #[arg(long = "display-root")]
-    pub display_root: Option<String>,
-
     /// Strip prefix from display paths (can be specified multiple times)
     #[arg(long = "strip-prefix")]
     pub strip_prefix: Vec<String>,
 
-    /// Show the display root at the beginning of output
-    #[arg(long = "show-root")]
-    pub show_root: bool,
-
-    /// Don't show root node in tree output (default for stdin mode)
-    #[arg(long = "no-root")]
-    pub no_root: bool,
-
-    /// Custom label for root node (e.g., ".", "PROJECT_ROOT")
+    /// Custom label for root node (if not specified, no root is shown)
     #[arg(long = "root-label")]
     pub root_label: Option<String>,
 
@@ -115,22 +88,5 @@ impl Args {
     pub fn validate(&self) -> Result<(), String> {
         // Add validation logic here if needed
         Ok(())
-    }
-
-    /// Determine the effective gitignore setting based on flags and mode
-    pub fn effective_gitignore(&self, is_stdin: bool) -> bool {
-        if self.no_gitignore {
-            // Explicit opt-out always wins
-            false
-        } else if self.respect_gitignore {
-            // Explicit opt-in
-            true
-        } else if is_stdin {
-            // For stdin mode, default is false (don't filter stdin-provided paths)
-            false
-        } else {
-            // For directory scan mode, default is true (respect .gitignore)
-            true
-        }
     }
 }
