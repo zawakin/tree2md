@@ -1,450 +1,572 @@
-use std::process::Command;
+use assert_cmd::prelude::*;
+use predicates::prelude::*;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use tempfile::TempDir;
 
-fn run_tree2md(args: &[&str]) -> (String, String, bool) {
-    let mut cmd = Command::new("./target/release/tree2md");
+// --------------------------------------------------------------------------------
+// Helpers
+// --------------------------------------------------------------------------------
+
+fn run_tree2md<I, S>(args: I) -> (String, String, bool)
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut cmd = Command::cargo_bin("tree2md").expect("tree2md binary not found");
     cmd.args(args);
 
-    let output = cmd.output().expect("Failed to execute tree2md");
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = cmd.output().expect("Failed to execute tree2md");
+    let stdout = String::from_utf8_lossy(&stdout).to_string();
+    let stderr = String::from_utf8_lossy(&stderr).to_string();
 
-    (stdout, stderr, output.status.success())
+    (stdout, stderr, status.success())
 }
+
+/// Create a "sample" like directory tree in a TempDir.
+/// Returns (tempdir, root_path)
+fn setup_sample_dir() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("create temp dir");
+    let root = dir.path().to_path_buf();
+
+    // root files
+    fs::write(root.join("empty.txt"), "").unwrap();
+    fs::write(root.join("hello.py"), "print(\"hello\")\n").unwrap();
+    fs::write(root.join("hoge.txt"), "hoge\n").unwrap();
+    fs::write(
+        root.join("large.txt"),
+        "line1\nline2\nline3\nline4\nline5\n",
+    )
+    .unwrap();
+    fs::write(root.join("multiline.txt"), "line1\nline2\nline3\n").unwrap();
+    fs::write(root.join("no_newline.txt"), "no_newline").unwrap();
+
+    // foo dir
+    let foo = root.join("foo");
+    fs::create_dir(&foo).unwrap();
+    fs::write(foo.join("bar.go"), "package foo\nfunc Bar() {}\n").unwrap();
+    fs::write(foo.join("bar.js"), "console.log('bar');\n").unwrap();
+    fs::write(foo.join("bar.py"), "def bar():\n    pass\n").unwrap();
+
+    (dir, root)
+}
+
+/// Create a gitignore-focused fixture like "test_gitignore".
+/// Returns (tempdir, root_path)
+fn setup_gitignore_fixture() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("create temp dir");
+    let root = dir.path().to_path_buf();
+
+    // src
+    let src = root.join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("main.rs"), "fn main() {}\n").unwrap();
+    fs::write(src.join("lib.rs"), "pub fn lib_function() {}\n").unwrap();
+
+    // other files
+    fs::write(root.join("README.md"), "# Readme\n").unwrap();
+
+    // ignored dirs/files
+    fs::create_dir_all(root.join("target")).unwrap();
+    fs::write(root.join("target/debug.out"), "bin\n").unwrap();
+
+    fs::create_dir_all(root.join("node_modules")).unwrap();
+    fs::write(root.join("node_modules/x.js"), "module.exports=1\n").unwrap();
+
+    fs::create_dir_all(root.join("dist")).unwrap();
+    fs::write(root.join("dist/bundle.js"), "// bundled\n").unwrap();
+
+    fs::write(root.join("test.tmp"), "tmp\n").unwrap();
+    fs::write(root.join("error.log"), "log\n").unwrap();
+
+    // local .gitignore to stabilize behavior
+    fs::write(
+        root.join(".gitignore"),
+        "target/\nnode_modules/\ndist/\n*.tmp\n*.log\n",
+    )
+    .unwrap();
+
+    (dir, root)
+}
+
+fn p<P: AsRef<Path>>(p: P) -> String {
+    p.as_ref().to_string_lossy().to_string()
+}
+
+// --------------------------------------------------------------------------------
+// Tests (rewritten to use temp fixtures)
+// --------------------------------------------------------------------------------
 
 #[test]
 fn test_sample_directory_basic_structure() {
-    let (output, _, success) = run_tree2md(&["sample"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Check for main structure header
-    assert!(
-        output.contains("## File Structure"),
-        "Should have file structure header"
-    );
+    let (output, _, success) = run_tree2md([p(&root)]);
+    assert!(success);
 
-    // Check for files in root
-    assert!(output.contains("empty.txt"), "Should list empty.txt");
-    assert!(output.contains("hello.py"), "Should list hello.py");
-    assert!(output.contains("hoge.txt"), "Should list hoge.txt");
-    assert!(output.contains("large.txt"), "Should list large.txt");
-    assert!(
-        output.contains("multiline.txt"),
-        "Should list multiline.txt"
-    );
-    assert!(
-        output.contains("no_newline.txt"),
-        "Should list no_newline.txt"
-    );
+    assert!(output.contains("## File Structure"));
 
-    // Check for foo directory and its contents
-    assert!(output.contains("foo/"), "Should list foo directory");
-    assert!(output.contains("bar.go"), "Should list bar.go");
-    assert!(output.contains("bar.js"), "Should list bar.js");
-    assert!(output.contains("bar.py"), "Should list bar.py");
+    // files at root
+    assert!(output.contains("empty.txt"));
+    assert!(output.contains("hello.py"));
+    assert!(output.contains("hoge.txt"));
+    assert!(output.contains("large.txt"));
+    assert!(output.contains("multiline.txt"));
+    assert!(output.contains("no_newline.txt"));
+
+    // foo dir and contents
+    assert!(output.contains("foo/"));
+    assert!(output.contains("bar.go"));
+    assert!(output.contains("bar.js"));
+    assert!(output.contains("bar.py"));
 }
 
 #[test]
 fn test_sample_with_contents() {
-    let (output, _, success) = run_tree2md(&["sample", "--contents"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Check structure is present
-    assert!(
-        output.contains("## File Structure"),
-        "Should have file structure header"
-    );
+    let (output, _, success) = run_tree2md([p(&root), "--contents".into()]);
+    assert!(success);
 
-    // Check for code blocks - note paths don't include "sample/" prefix in headers
-    assert!(
-        output.contains("### hello.py"),
-        "Should have hello.py header"
-    );
-    assert!(
-        output.contains("```python"),
-        "Should have python code block"
-    );
-    assert!(
-        output.contains("print(\"hello\")"),
-        "Should contain hello.py content"
-    );
+    assert!(output.contains("## File Structure"));
 
-    // Check Go file
-    assert!(
-        output.contains("### foo/bar.go"),
-        "Should have bar.go header"
-    );
-    assert!(output.contains("```go"), "Should have go code block");
-    assert!(
-        output.contains("package foo"),
-        "Should contain bar.go content"
-    );
-    assert!(output.contains("func Bar()"), "Should contain Bar function");
+    assert!(output.contains("### hello.py"));
+    assert!(output.contains("```python"));
+    assert!(output.contains("print(\"hello\")"));
 
-    // Check multiline text file
-    assert!(
-        output.contains("### multiline.txt"),
-        "Should have multiline.txt header"
-    );
-    assert!(output.contains("line1"), "Should contain first line");
-    assert!(output.contains("line2"), "Should contain second line");
-    assert!(output.contains("line3"), "Should contain third line");
+    assert!(output.contains("### foo/bar.go"));
+    assert!(output.contains("```go"));
+    assert!(output.contains("package foo"));
+    assert!(output.contains("func Bar()"));
+
+    assert!(output.contains("### multiline.txt"));
+    assert!(output.contains("line1"));
+    assert!(output.contains("line2"));
+    assert!(output.contains("line3"));
 }
 
 #[test]
 fn test_sample_with_extension_filter() {
-    let (output, _, success) = run_tree2md(&["sample", "--include-ext", "py"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Should include Python files
-    assert!(output.contains("hello.py"), "Should include hello.py");
-    assert!(output.contains("bar.py"), "Should include bar.py");
+    let (output, _, success) = run_tree2md([p(&root), "--include-ext".into(), "py".into()]);
+    assert!(success);
 
-    // Should exclude other extensions
-    assert!(!output.contains("bar.go"), "Should exclude .go files");
-    assert!(!output.contains("bar.js"), "Should exclude .js files");
-    assert!(!output.contains("hoge.txt"), "Should exclude .txt files");
-    assert!(!output.contains("empty.txt"), "Should exclude empty.txt");
+    assert!(output.contains("hello.py"));
+    assert!(output.contains("bar.py"));
+
+    assert!(!output.contains("bar.go"));
+    assert!(!output.contains("bar.js"));
+    assert!(!output.contains("hoge.txt"));
+    assert!(!output.contains("empty.txt"));
 }
 
 #[test]
 fn test_sample_multiple_extensions() {
-    let (output, _, success) = run_tree2md(&["sample", "--include-ext", "py,go"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Should include Python and Go files
-    assert!(output.contains("hello.py"), "Should include hello.py");
-    assert!(output.contains("bar.py"), "Should include bar.py");
-    assert!(output.contains("bar.go"), "Should include bar.go");
+    let (output, _, success) = run_tree2md([p(&root), "--include-ext".into(), "py,go".into()]);
+    assert!(success);
 
-    // Should exclude other extensions
-    assert!(!output.contains("bar.js"), "Should exclude .js files");
-    assert!(!output.contains("hoge.txt"), "Should exclude .txt files");
+    assert!(output.contains("hello.py"));
+    assert!(output.contains("bar.py"));
+    assert!(output.contains("bar.go"));
+
+    assert!(!output.contains("bar.js"));
+    assert!(!output.contains("hoge.txt"));
 }
 
 #[test]
 fn test_sample_with_max_lines() {
-    let (output, _, success) = run_tree2md(&["sample", "--contents", "--max-lines", "2"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Check that multiline.txt is truncated
-    assert!(
-        output.contains("### multiline.txt"),
-        "Should have multiline.txt header"
-    );
-    assert!(output.contains("line1"), "Should contain first line");
-    assert!(output.contains("line2"), "Should contain second line");
-    assert!(
-        !output.contains("line3"),
-        "Should not contain third line (truncated)"
-    );
-    assert!(
-        output.contains("[Content truncated:"),
-        "Should have truncation message"
-    );
+    let (output, _, success) = run_tree2md([
+        p(&root),
+        "--contents".into(),
+        "--max-lines".into(),
+        "2".into(),
+    ]);
+    assert!(success);
+
+    assert!(output.contains("### multiline.txt"));
+    assert!(output.contains("line1"));
+    assert!(output.contains("line2"));
+    assert!(!output.contains("line3"));
+    assert!(output.contains("[Content truncated:"));
 }
 
 #[test]
 fn test_sample_flat_structure() {
-    let (output, _, success) = run_tree2md(&["sample", "--flat"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // In flat mode, files are listed with their paths from root
-    assert!(output.contains("- empty.txt"), "Should show empty.txt");
-    assert!(output.contains("- hello.py"), "Should show hello.py");
-    assert!(output.contains("- foo/bar.go"), "Should show foo/bar.go");
-    assert!(output.contains("- foo/bar.js"), "Should show foo/bar.js");
-    assert!(output.contains("- foo/bar.py"), "Should show foo/bar.py");
+    let (output, _, success) = run_tree2md([p(&root), "--flat".into()]);
+    assert!(success);
 
-    // Should not have tree-like indentation or structure
-    assert!(!output.contains("  -"), "Should not have indented items");
-    assert!(!output.contains("sample/"), "Should not show sample prefix");
-}
+    assert!(output.contains("- empty.txt"));
+    assert!(output.contains("- hello.py"));
+    assert!(output.contains("- foo/bar.go"));
+    assert!(output.contains("- foo/bar.js"));
+    assert!(output.contains("- foo/bar.py"));
 
-#[test]
-#[ignore] // TODO: --exclude option not yet implemented
-fn test_sample_with_exclude_pattern() {
-    let (output, _, success) = run_tree2md(&["sample", "--exclude", "*.txt"]);
-    assert!(success, "Command should succeed");
-
-    // Should include non-txt files
-    assert!(output.contains("hello.py"), "Should include hello.py");
-    assert!(output.contains("bar.go"), "Should include bar.go");
-    assert!(output.contains("bar.js"), "Should include bar.js");
-    assert!(output.contains("bar.py"), "Should include bar.py");
-
-    // Should exclude txt files
-    assert!(!output.contains("empty.txt"), "Should exclude empty.txt");
-    assert!(!output.contains("hoge.txt"), "Should exclude hoge.txt");
-    assert!(!output.contains("large.txt"), "Should exclude large.txt");
-    assert!(
-        !output.contains("multiline.txt"),
-        "Should exclude multiline.txt"
-    );
-    assert!(
-        !output.contains("no_newline.txt"),
-        "Should exclude no_newline.txt"
-    );
-}
-
-#[test]
-#[ignore] // TODO: --include pattern option not yet implemented
-fn test_sample_with_include_pattern() {
-    let (output, _, success) = run_tree2md(&["sample", "--include", "foo/*.py"]);
-    assert!(success, "Command should succeed");
-
-    // Should only include Python files in foo directory
-    assert!(output.contains("bar.py"), "Should include foo/bar.py");
-
-    // Should exclude everything else
-    assert!(
-        !output.contains("hello.py"),
-        "Should exclude hello.py (not in foo/)"
-    );
-    assert!(!output.contains("bar.go"), "Should exclude bar.go");
-    assert!(!output.contains("bar.js"), "Should exclude bar.js");
-    assert!(
-        !output.contains("empty.txt"),
-        "Should exclude all txt files"
-    );
-}
-
-#[test]
-#[ignore] // TODO: --max-depth option not yet implemented
-fn test_sample_depth_limit() {
-    let (output, _, success) = run_tree2md(&["sample", "--max-depth", "1"]);
-    assert!(success, "Command should succeed");
-
-    // Should include root level files
-    assert!(
-        output.contains("empty.txt"),
-        "Should include root level empty.txt"
-    );
-    assert!(
-        output.contains("hello.py"),
-        "Should include root level hello.py"
-    );
-    assert!(
-        output.contains("hoge.txt"),
-        "Should include root level hoge.txt"
-    );
-
-    // Should show foo directory but not its contents
-    assert!(output.contains("foo/"), "Should show foo directory");
-    assert!(
-        !output.contains("bar.go"),
-        "Should not show contents of foo/"
-    );
-    assert!(
-        !output.contains("bar.js"),
-        "Should not show contents of foo/"
-    );
-    assert!(
-        !output.contains("bar.py"),
-        "Should not show contents of foo/"
-    );
+    assert!(!output.contains("  -"));
+    // Using auto-detected display root, so no fixed path names expected
 }
 
 #[test]
 fn test_sample_no_root() {
-    let (output, _, success) = run_tree2md(&["sample", "--no-root"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Check that root (sample) is not shown
-    // Files should be at the top level of the tree
+    let (output, _, success) = run_tree2md([p(&root), "--no-root".into()]);
+    assert!(success);
+
     let lines: Vec<&str> = output.lines().collect();
     let structure_start = lines
         .iter()
         .position(|&l| l == "## File Structure")
         .unwrap();
 
-    // The first non-empty line after "## File Structure" should be a file, not "sample"
-    let mut first_item_found = false;
-    for i in (structure_start + 1)..lines.len() {
-        if !lines[i].trim().is_empty() {
-            assert!(
-                !lines[i].contains("sample"),
-                "Root should not be shown with --no-root"
-            );
-            first_item_found = true;
-            break;
-        }
-    }
+    let root_name = root.file_name().unwrap().to_string_lossy();
+    let root_line = format!("- {}/", root_name);
     assert!(
-        first_item_found,
-        "Should find at least one item in the tree"
+        !lines.iter().any(|l| l.trim() == root_line),
+        "Root should not be shown with --no-root"
     );
 }
 
 #[test]
 fn test_sample_with_root_label() {
-    let (output, _, success) = run_tree2md(&["sample", "--root-label", "MyProject"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Should use custom root label instead of "sample"
-    assert!(output.contains("MyProject"), "Should use custom root label");
+    let (output, _, success) = run_tree2md([p(&root), "--root-label".into(), "MyProject".into()]);
+    assert!(success);
 
-    // Should still contain all files
-    assert!(output.contains("empty.txt"), "Should contain files");
-    assert!(output.contains("hello.py"), "Should contain files");
-    assert!(output.contains("foo/"), "Should contain subdirectory");
-}
-
-#[test]
-#[ignore] // TODO: --directories-only option not yet implemented
-fn test_sample_directories_only() {
-    let (output, _, success) = run_tree2md(&["sample", "--directories-only"]);
-    assert!(success, "Command should succeed");
-
-    // Should only show directories
-    assert!(output.contains("foo/"), "Should show foo directory");
-
-    // Should not show files
-    assert!(!output.contains("empty.txt"), "Should not show files");
-    assert!(!output.contains("hello.py"), "Should not show files");
-    assert!(!output.contains("bar.go"), "Should not show files");
+    assert!(output.contains("MyProject"));
+    assert!(output.contains("empty.txt"));
+    assert!(output.contains("hello.py"));
+    assert!(output.contains("foo/"));
 }
 
 #[test]
 fn test_sample_with_gitignore() {
-    // First, create a .gitignore file in sample directory
-    std::fs::write("sample/.gitignore", "*.txt\n").expect("Failed to write .gitignore");
+    let (_tmp, root) = setup_sample_dir();
 
-    let (output, _, success) = run_tree2md(&["sample", "--respect-gitignore"]);
-    assert!(success, "Command should succeed");
+    // Add temporary .gitignore
+    fs::write(root.join(".gitignore"), "*.txt\n").expect("Failed to write .gitignore");
 
-    // Should exclude .txt files as per .gitignore
-    assert!(!output.contains("empty.txt"), "Should respect .gitignore");
-    assert!(!output.contains("hoge.txt"), "Should respect .gitignore");
+    let (output, _, success) = run_tree2md([p(&root), "--respect-gitignore".into()]);
+    assert!(success);
+
+    assert!(!output.contains("empty.txt"));
+    assert!(!output.contains("hoge.txt"));
+    assert!(!output.contains("multiline.txt"));
+
+    assert!(output.contains("hello.py"));
+    assert!(output.contains("bar.go"));
+}
+
+#[test]
+fn test_gitignore_default_behavior() {
+    let (_tmp, root) = setup_gitignore_fixture();
+
+    // Directory scan mode respects .gitignore by default
+    let (output, _, success) = run_tree2md([p(&root)]);
+    assert!(success);
+
+    assert!(output.contains("main.rs"));
+    assert!(output.contains("lib.rs"));
+    assert!(output.contains("README.md"));
+
+    assert!(!output.contains("target/"));
+    assert!(!output.contains("node_modules/"));
+    assert!(!output.contains("dist/"));
+    assert!(!output.contains("test.tmp"));
+    assert!(!output.contains("error.log"));
+}
+
+#[test]
+fn test_no_gitignore_flag() {
+    let (_tmp, root) = setup_gitignore_fixture();
+
+    let (output, _, success) = run_tree2md([p(&root), "--no-gitignore".into()]);
+    assert!(success);
+
+    assert!(output.contains("main.rs"));
+    assert!(output.contains("lib.rs"));
+    assert!(output.contains("README.md"));
+    assert!(output.contains("target/"));
+    assert!(output.contains("node_modules/"));
+    assert!(output.contains("dist/"));
+    assert!(output.contains("test.tmp"));
+    assert!(output.contains("error.log"));
+}
+
+#[test]
+fn test_stdin_authoritative_ignored_file() {
+    use assert_cmd::Command;
+
+    let (_tmp, root) = setup_gitignore_fixture();
+    let ignored = root.join("target/debug.out");
+
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([p(&root), "--stdin".into()])
+        .write_stdin(format!("{}\n", p(&ignored)))
+        .assert();
+
+    let output = assert
+        .success()
+        .stdout(predicate::str::contains("debug.out"))
+        .get_output()
+        .clone();
+
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+    // authoritative: no automatic directory scanning
     assert!(
-        !output.contains("multiline.txt"),
-        "Should respect .gitignore"
+        !out.contains("main.rs"),
+        "Should not scan directory in authoritative mode"
     );
+}
 
-    // Should include non-ignored files
-    assert!(
-        output.contains("hello.py"),
-        "Should include non-ignored files"
-    );
-    assert!(
-        output.contains("bar.go"),
-        "Should include non-ignored files"
-    );
+#[test]
+fn test_stdin_merge_mode_gitignore() {
+    use assert_cmd::Command;
 
-    // Clean up
-    std::fs::remove_file("sample/.gitignore").ok();
+    let (_tmp, root) = setup_gitignore_fixture();
+    let ignored = root.join("target/debug.out");
+
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([
+            p(&root),
+            "--stdin".into(),
+            "--stdin-mode".into(),
+            "merge".into(),
+        ])
+        .write_stdin(format!("{}\n", p(&ignored)))
+        .assert();
+
+    let output = assert.success().get_output().clone();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+
+    assert!(out.contains("debug.out"));
+    assert!(out.contains("main.rs"));
+    assert!(out.contains("README.md"));
+    assert!(!out.contains("node_modules"));
+    assert!(!out.contains("test.tmp"));
+}
+
+#[test]
+fn test_stdin_expand_dirs_default() {
+    use assert_cmd::Command;
+
+    // Create a simple test fixture
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    // Create files and directories
+    fs::write(root.join("file1.txt"), "content1").unwrap();
+    fs::write(root.join("file2.txt"), "content2").unwrap();
+    fs::create_dir(root.join("ignored_dir")).unwrap();
+    fs::write(root.join("ignored_dir/ignored.txt"), "ignored").unwrap();
+
+    // Create .gitignore
+    fs::write(root.join(".gitignore"), "ignored_dir/\n").unwrap();
+
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([p(&root), "--stdin".into(), "--expand-dirs".into()])
+        .write_stdin(".\n")
+        .assert();
+
+    let output = assert.success().get_output().clone();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Should include normal files
+    assert!(out.contains("file1.txt"));
+    assert!(out.contains("file2.txt"));
+
+    // Should NOT include ignored directory or its contents
+    assert!(!out.contains("ignored_dir"));
+    assert!(!out.contains("ignored.txt"));
+}
+
+#[test]
+fn test_stdin_expand_dirs_no_gitignore() {
+    use assert_cmd::Command;
+
+    let (_tmp, root) = setup_gitignore_fixture();
+
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([
+            p(&root),
+            "--stdin".into(),
+            "--expand-dirs".into(),
+            "--no-gitignore".into(),
+            "--base".into(),
+            p(&root),
+        ])
+        .write_stdin(".\n")
+        .assert();
+
+    let output = assert.success().get_output().clone();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+
+    assert!(out.contains("main.rs"));
+    assert!(out.contains("lib.rs"));
+    assert!(out.contains("README.md"));
+    assert!(out.contains("debug.out"));
+    assert!(out.contains("test.tmp"));
+    assert!(out.contains("error.log"));
+}
+
+#[test]
+fn test_stdin_expand_ignored_dir() {
+    use assert_cmd::Command;
+
+    let (_tmp, root) = setup_gitignore_fixture();
+
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([
+            p(&root),
+            "--stdin".into(),
+            "--expand-dirs".into(),
+            "--base".into(),
+            p(&root),
+        ])
+        .write_stdin("target\n")
+        .assert();
+
+    // When expanding an ignored directory, it should fail with "No valid files found"
+    assert
+        .failure()
+        .stderr(predicate::str::contains("No valid files found"));
 }
 
 #[test]
 fn test_sample_empty_file_handling() {
-    let (output, _, success) = run_tree2md(&["sample", "--contents"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Check that empty.txt is handled correctly
-    assert!(
-        output.contains("### empty.txt"),
-        "Should have empty.txt header"
-    );
-    // The code block for empty file should exist but be empty
+    let (output, _, success) = run_tree2md([p(&root), "--contents".into()]);
+    assert!(success);
+
+    assert!(output.contains("### empty.txt"));
     if let Some(empty_idx) = output.find("### empty.txt") {
         let after_empty = &output[empty_idx..];
-        assert!(
-            after_empty.contains("```"),
-            "Should have code block for empty file"
-        );
+        assert!(after_empty.contains("```"));
     }
 }
 
 #[test]
 fn test_sample_no_newline_file() {
-    // This tests a file that doesn't end with a newline
-    let (output, _, success) = run_tree2md(&["sample", "--contents"]);
-    assert!(success, "Command should succeed");
+    let (_tmp, root) = setup_sample_dir();
 
-    // Check that no_newline.txt is handled correctly
+    let (output, _, success) = run_tree2md([p(&root), "--contents".into()]);
+    assert!(success);
+
     if output.contains("### no_newline.txt") {
         let no_newline_idx = output.find("### no_newline.txt").unwrap();
         let after_no_newline = &output[no_newline_idx..];
-        assert!(after_no_newline.contains("```"), "Should have code block");
+        assert!(after_no_newline.contains("```"));
     }
 }
 
 #[test]
 fn test_nonexistent_directory() {
-    let (_, stderr, success) = run_tree2md(&["nonexistent_directory_that_does_not_exist"]);
-    assert!(!success, "Command should fail for nonexistent directory");
-    assert!(!stderr.is_empty(), "Should have error message");
+    let bogus = PathBuf::from("nonexistent_directory_that_does_not_exist");
+    let (_stdout, stderr, success) = run_tree2md([p(&bogus)]);
+    assert!(!success);
+    assert!(!stderr.is_empty());
 }
 
 #[test]
 fn test_file_instead_of_directory() {
-    let (output, _, success) = run_tree2md(&["sample/hello.py"]);
-    assert!(success, "Command should succeed when given a file");
-    // When given a file, tree2md shows that single file
-    assert!(output.contains("hello.py"), "Should show the file");
+    let (_tmp, root) = setup_sample_dir();
+    let hello = root.join("hello.py");
+
+    let (output, _, success) = run_tree2md([p(&hello)]);
+    assert!(success);
+    assert!(output.contains("hello.py"));
 }
 
 #[test]
 fn test_empty_extension_list() {
-    let (output, _, success) = run_tree2md(&["sample", "--include-ext", ""]);
-    assert!(success, "Command should succeed with empty extension list");
-    // With empty extension filter, no files should match
-    assert!(!output.contains("hello.py"), "Should not include any files");
-    assert!(!output.contains("bar.go"), "Should not include any files");
+    let (_tmp, root) = setup_sample_dir();
+
+    let (output, _, success) = run_tree2md([p(&root), "--include-ext".into(), "".into()]);
+    assert!(success);
+    assert!(!output.contains("hello.py"));
+    assert!(!output.contains("bar.go"));
 }
 
 #[test]
 fn test_invalid_max_lines() {
-    let (output, _, success) = run_tree2md(&["sample", "--contents", "--max-lines", "0"]);
-    assert!(success, "Command should succeed with max-lines 0");
-    // With max-lines 0, file contents should be empty or show truncation
+    let (_tmp, root) = setup_sample_dir();
+
+    let (output, _, success) = run_tree2md([
+        p(&root),
+        "--contents".into(),
+        "--max-lines".into(),
+        "0".into(),
+    ]);
+    assert!(success);
     if output.contains("### hello.py") {
         let hello_idx = output.find("### hello.py").unwrap();
-        let after_hello = &output[hello_idx..hello_idx + 200.min(output.len() - hello_idx)];
-        assert!(
-            after_hello.contains("Content truncated"),
-            "Should truncate all content with max-lines 0"
-        );
+        let end = (hello_idx + 200).min(output.len());
+        let after_hello = &output[hello_idx..end];
+        assert!(after_hello.contains("Content truncated"));
     }
 }
 
 #[test]
 fn test_multiple_strip_prefix() {
-    let (_output, _, success) = run_tree2md(&[
-        "sample",
-        "--strip-prefix",
-        "sample",
-        "--strip-prefix",
-        "foo",
+    let (_tmp, root) = setup_sample_dir();
+    let foo = root.join("foo");
+
+    let (_output, _stderr, success) = run_tree2md([
+        p(&root),
+        "--strip-prefix".into(),
+        p(&root),
+        "--strip-prefix".into(),
+        p(&foo),
     ]);
-    assert!(success, "Command should succeed with multiple strip-prefix");
-    // Note: Need to verify how strip-prefix actually works
+    assert!(success);
 }
 
 #[test]
 fn test_permission_denied() {
-    // Create a directory without read permission
-    use std::fs;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    let temp_dir = "test_no_permission";
-    fs::create_dir(temp_dir).ok();
-    fs::write(format!("{}/file.txt", temp_dir), "content").ok();
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().to_path_buf();
+    let locked = root.join("locked_dir");
+    fs::create_dir_all(&locked).unwrap();
+    fs::write(locked.join("file.txt"), "content").ok();
 
-    // Remove read permission
-    let mut perms = fs::metadata(temp_dir).unwrap().permissions();
-    perms.set_mode(0o000);
-    fs::set_permissions(temp_dir, perms).ok();
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&locked, perms).ok();
+    }
 
-    let (_, stderr, success) = run_tree2md(&[temp_dir]);
+    let (_out, stderr, success) = run_tree2md([p(&locked)]);
 
-    // Restore permission and clean up
-    let mut perms = fs::metadata(temp_dir).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(temp_dir, perms).ok();
-    fs::remove_dir_all(temp_dir).ok();
+    // restore to cleanup
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&locked).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&locked, perms).ok();
+    }
 
-    // On some systems, permission denied might not fail the command
-    // but should at least show a warning
     if !success {
         assert!(
             !stderr.is_empty(),

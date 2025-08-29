@@ -20,10 +20,13 @@ pub enum DisplayPathMode {
     Input,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[command(name = "tree2md")]
 #[command(version = VERSION)]
 #[command(about = "Scans directories and outputs their structure in Markdown format")]
+#[command(
+    long_about = "Scans directories and outputs their structure in Markdown format.\n\nBy default, .gitignore files are respected for directory scans.\nUse --no-gitignore to include ignored files."
+)]
 pub struct Args {
     /// Include file contents (code blocks)
     #[arg(short = 'c', long = "contents")]
@@ -45,9 +48,20 @@ pub struct Args {
     #[arg(short = 'a', long = "all")]
     pub all: bool,
 
-    /// Respect .gitignore files
-    #[arg(long = "respect-gitignore")]
+    /// Force respect .gitignore files (default for directory scans)
+    #[arg(
+        long = "respect-gitignore",
+        help = "Force respect .gitignore files in all modes"
+    )]
     pub respect_gitignore: bool,
+
+    /// Do not respect .gitignore files (overrides default behavior)
+    #[arg(
+        long = "no-gitignore",
+        conflicts_with = "respect_gitignore",
+        help = "Ignore .gitignore files and include all files"
+    )]
+    pub no_gitignore: bool,
 
     /// Find files matching wildcard patterns (e.g., "*.rs", "src/**/*.go")
     /// Multiple patterns can be specified by using this option multiple times
@@ -121,5 +135,22 @@ impl Args {
     pub fn validate(&self) -> Result<(), String> {
         // Add validation logic here if needed
         Ok(())
+    }
+
+    /// Determine the effective gitignore setting based on flags and mode
+    pub fn effective_gitignore(&self, is_stdin: bool) -> bool {
+        if self.no_gitignore {
+            // Explicit opt-out always wins
+            false
+        } else if self.respect_gitignore {
+            // Explicit opt-in
+            true
+        } else if is_stdin {
+            // For stdin mode, default is false (don't filter stdin-provided paths)
+            false
+        } else {
+            // For directory scan mode, default is true (respect .gitignore)
+            true
+        }
     }
 }

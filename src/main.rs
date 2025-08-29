@@ -39,8 +39,12 @@ fn main() -> io::Result<()> {
         .canonicalize()
         .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
 
+    // Create args with effective gitignore setting for directory scan
+    let mut effective_args = args.clone();
+    effective_args.respect_gitignore = args.effective_gitignore(false);
+
     // Build tree using unified WalkBuilder approach
-    let mut root_node = build_tree(&args.directory, &args, &root_path, &display_root)?;
+    let mut root_node = build_tree(&args.directory, &effective_args, &root_path, &display_root)?;
     if let Some(ref ext_str) = args.include_ext {
         let exts = parse_ext_list(ext_str);
         filter_by_extension(&mut root_node, &exts);
@@ -83,18 +87,36 @@ fn main() -> io::Result<()> {
 }
 
 fn handle_stdin_mode(args: &Args) -> io::Result<()> {
-    // Respect gitignore by default in stdin merge mode
-    let _respect_gitignore = match args.stdin_mode {
-        StdinMode::Merge => args.respect_gitignore,
-        StdinMode::Authoritative => args.respect_gitignore,
+    // Decide base_dir for resolving relative paths from stdin.
+    // If --base is not explicitly set (defaults to "."),
+    // use the positional directory argument so that tests like
+    // `echo . | tree2md <TEMP_ROOT> --stdin --expand-dirs`
+    // resolve '.' relative to <TEMP_ROOT>, not the process CWD.
+    let base_dir = if args.base == "." {
+        Path::new(&args.directory)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(&args.directory))
+    } else {
+        PathBuf::from(&args.base)
     };
 
     let stdin_config = StdinConfig {
         null_delimited: args.stdin0,
-        base_dir: PathBuf::from(&args.base),
+        base_dir,
         restrict_root: args.restrict_root.as_ref().map(PathBuf::from),
         expand_dirs: args.expand_dirs,
         keep_order: args.keep_order,
+        // When expanding dirs, respect gitignore by default (treat expansion like scanning)
+        // The directories themselves are kept (stdin authoritative) but contents are filtered
+        respect_gitignore: if args.expand_dirs {
+            if args.no_gitignore {
+                false
+            } else {
+                true // Default: respect gitignore when expanding (or explicitly set via --respect-gitignore)
+            }
+        } else {
+            false // Not expanding, so this field doesn't matter
+        },
     };
 
     // Process stdin input and get both canonical paths and original inputs
@@ -125,7 +147,11 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         // Determine display root for merge mode
         let display_root = determine_display_root(args, &all_paths)?;
 
-        let dir_node = build_tree(&args.directory, args, &root_path, &display_root)?;
+        // For merge mode, apply gitignore to the directory scan portion only
+        let mut scan_args = args.clone();
+        scan_args.respect_gitignore = args.effective_gitignore(false);
+
+        let dir_node = build_tree(&args.directory, &scan_args, &root_path, &display_root)?;
 
         // Collect files from directory tree
         let mut dir_files = Vec::new();
