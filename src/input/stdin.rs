@@ -202,7 +202,11 @@ fn expand_directory(dir: &Path, result: &mut Vec<PathBuf>, exclude_hidden: bool)
     Ok(())
 }
 
-fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclude_hidden: bool) -> io::Result<()> {
+fn expand_directory_with_gitignore(
+    dir: &Path,
+    result: &mut Vec<PathBuf>,
+    exclude_hidden: bool,
+) -> io::Result<()> {
     use ignore::{gitignore::GitignoreBuilder, WalkBuilder};
 
     // 1) Build gitignore with dir's parent as base to check if dir itself is ignored
@@ -241,7 +245,7 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclud
             builder.add(global);
         }
     }
-    
+
     // Check if the directory itself is ignored
     if let Ok(gi) = builder.build() {
         if let Ok(rel) = dir.strip_prefix(base_for_check) {
@@ -251,7 +255,7 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclud
             }
         }
     }
-    
+
     // 2) Build gitignore again with dir as base for filtering contents
     let base = dir;
     let mut builder = GitignoreBuilder::new(base);
@@ -294,10 +298,10 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclud
     let mut walker = WalkBuilder::new(base);
     walker
         .hidden(exclude_hidden)
-        .git_ignore(false)  // Disable WalkBuilder's gitignore, use our own
-        .git_global(false)  // We handle global gitignore ourselves
+        .git_ignore(false) // Disable WalkBuilder's gitignore, use our own
+        .git_global(false) // We handle global gitignore ourselves
         .git_exclude(false) // We handle git exclude ourselves
-        .parents(false)     // We collect parent gitignores ourselves
+        .parents(false) // We collect parent gitignores ourselves
         .filter_entry({
             let gi = gi.clone();
             let base = base.to_path_buf(); // Clone base for the closure
@@ -308,11 +312,12 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclud
                         return false; // Prune .git directory
                     }
                 }
-                
+
                 if let Some(ref gi) = gi {
                     // Use relative path from base for matching
                     if let Ok(rel) = entry.path().strip_prefix(&base) {
-                        let is_dir = entry.file_type()
+                        let is_dir = entry
+                            .file_type()
                             .map(|t| t.is_dir())
                             .unwrap_or_else(|| entry.path().is_dir());
                         if gi.matched(rel, is_dir).is_ignore() {
@@ -324,23 +329,22 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclud
             }
         });
 
-    for entry in walker.build() {
-        if let Ok(entry) = entry {
-            let p = entry.path();
-            
-            // Always exclude .git directory
-            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                if name == ".git" {
-                    continue;
-                }
+    for entry in walker.build().flatten() {
+        let p = entry.path();
+
+        // Always exclude .git directory
+        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+            if name == ".git" {
+                continue;
             }
-            
-            let is_file = entry.file_type()
-                .map(|t| t.is_file())
-                .unwrap_or_else(|| p.is_file());
-            if is_file {
-                result.push(p.to_path_buf());
-            }
+        }
+
+        let is_file = entry
+            .file_type()
+            .map(|t| t.is_file())
+            .unwrap_or_else(|| p.is_file());
+        if is_file {
+            result.push(p.to_path_buf());
         }
     }
     Ok(())

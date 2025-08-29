@@ -165,7 +165,6 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
     Ok(())
 }
 
-
 fn collect_paths_from_node(node: &Node, paths: &mut Vec<PathBuf>) {
     if !node.is_dir && !node.path.as_os_str().is_empty() {
         paths.push(node.path.clone());

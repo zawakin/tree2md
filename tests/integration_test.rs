@@ -334,7 +334,6 @@ fn test_stdin_authoritative_ignored_file() {
     );
 }
 
-
 #[test]
 fn test_stdin_expand_dirs_default() {
     use assert_cmd::Command;
@@ -406,11 +405,7 @@ fn test_stdin_expand_ignored_dir() {
 
     let assert = Command::cargo_bin("tree2md")
         .expect("bin")
-        .args([
-            p(&root),
-            "--stdin".into(),
-            "--expand-dirs".into(),
-        ])
+        .args([p(&root), "--stdin".into(), "--expand-dirs".into()])
         .write_stdin("target\n")
         .assert();
 
@@ -426,27 +421,27 @@ fn test_stdin_expand_parent_gitignore() {
     // Test that parent directory's .gitignore affects child directories
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
-    
+
     // Create parent directory with .gitignore
     let parent = root.join("parent");
     fs::create_dir(&parent).unwrap();
-    
+
     // Create .gitignore in parent that ignores "ignored_subdir"
     fs::write(parent.join(".gitignore"), "ignored_subdir/\n*.tmp\n").unwrap();
-    
+
     // Create child directory
     let child = parent.join("child");
     fs::create_dir(&child).unwrap();
-    
+
     // Create files in child
     fs::write(child.join("file1.txt"), "content1").unwrap();
-    fs::write(child.join("file2.tmp"), "temp file").unwrap();  // Should be ignored by parent's .gitignore
-    
-    // Create ignored subdirectory in child  
+    fs::write(child.join("file2.tmp"), "temp file").unwrap(); // Should be ignored by parent's .gitignore
+
+    // Create ignored subdirectory in child
     let ignored_sub = child.join("ignored_subdir");
     fs::create_dir(&ignored_sub).unwrap();
     fs::write(ignored_sub.join("ignored.txt"), "ignored content").unwrap();
-    
+
     // Test expanding child directory - should respect parent's .gitignore
     let assert = assert_cmd::Command::cargo_bin("tree2md")
         .expect("bin")
@@ -455,19 +450,25 @@ fn test_stdin_expand_parent_gitignore() {
         .arg("--expand-dirs")
         .write_stdin(format!("{}\n", child.display()))
         .assert();
-    
+
     let output = assert.success().get_output().clone();
     let out = String::from_utf8_lossy(&output.stdout).to_string();
-    
+
     // Should include file1.txt
     assert!(out.contains("file1.txt"), "Should include file1.txt");
-    
+
     // Should NOT include file2.tmp (ignored by parent's *.tmp pattern)
     assert!(!out.contains("file2.tmp"), "Should not include file2.tmp");
-    
+
     // Should NOT include ignored_subdir (ignored by parent's ignored_subdir/ pattern)
-    assert!(!out.contains("ignored_subdir"), "Should not include ignored_subdir");
-    assert!(!out.contains("ignored.txt"), "Should not include files in ignored_subdir");
+    assert!(
+        !out.contains("ignored_subdir"),
+        "Should not include ignored_subdir"
+    );
+    assert!(
+        !out.contains("ignored.txt"),
+        "Should not include files in ignored_subdir"
+    );
 }
 
 #[test]
@@ -608,11 +609,17 @@ fn test_hidden_files_shown_by_default() {
     fs::write(root.join(".env"), "X=1").unwrap();
     fs::write(root.join(".gitignore"), "target/").unwrap();
     fs::write(root.join("visible.txt"), "visible").unwrap();
-    
+
     let (out, _, ok) = run_tree2md([p(&root)]);
     assert!(ok);
-    assert!(out.contains(".env"), "Hidden files should be shown by default");
-    assert!(out.contains(".gitignore"), "Hidden files should be shown by default");
+    assert!(
+        out.contains(".env"),
+        "Hidden files should be shown by default"
+    );
+    assert!(
+        out.contains(".gitignore"),
+        "Hidden files should be shown by default"
+    );
     assert!(out.contains("visible.txt"));
 }
 
@@ -625,13 +632,25 @@ fn test_exclude_hidden_flag() {
     fs::write(root.join("visible.txt"), "visible").unwrap();
     fs::create_dir(root.join(".hidden_dir")).unwrap();
     fs::write(root.join(".hidden_dir/file.txt"), "hidden").unwrap();
-    
+
     let (out, _, ok) = run_tree2md([p(&root), "--exclude-hidden".into()]);
     assert!(ok);
-    assert!(!out.contains(".env"), "Hidden files should be excluded with --exclude-hidden");
-    assert!(!out.contains(".gitignore"), "Hidden files should be excluded with --exclude-hidden");
-    assert!(!out.contains(".hidden_dir"), "Hidden directories should be excluded with --exclude-hidden");
-    assert!(out.contains("visible.txt"), "Visible files should still be shown");
+    assert!(
+        !out.contains(".env"),
+        "Hidden files should be excluded with --exclude-hidden"
+    );
+    assert!(
+        !out.contains(".gitignore"),
+        "Hidden files should be excluded with --exclude-hidden"
+    );
+    assert!(
+        !out.contains(".hidden_dir"),
+        "Hidden directories should be excluded with --exclude-hidden"
+    );
+    assert!(
+        out.contains("visible.txt"),
+        "Visible files should still be shown"
+    );
 }
 
 #[test]
@@ -646,15 +665,29 @@ fn test_stdin_expand_dirs_exclude_hidden() {
 
     let assert = Command::cargo_bin("tree2md")
         .expect("bin")
-        .args([p(&root), "--stdin".into(), "--expand-dirs".into(), "--exclude-hidden".into()])
+        .args([
+            p(&root),
+            "--stdin".into(),
+            "--expand-dirs".into(),
+            "--exclude-hidden".into(),
+        ])
         .write_stdin(".\n")
         .assert();
 
     let output = assert.success().get_output().clone();
     let out = String::from_utf8_lossy(&output.stdout).to_string();
-    assert!(!out.contains(".hidden_dir"), "Hidden dirs should be excluded in stdin expand mode");
-    assert!(!out.contains(".env"), "Hidden files should be excluded in stdin expand mode");
-    assert!(out.contains("visible.txt"), "Visible files should be included in stdin expand mode");
+    assert!(
+        !out.contains(".hidden_dir"),
+        "Hidden dirs should be excluded in stdin expand mode"
+    );
+    assert!(
+        !out.contains(".env"),
+        "Hidden files should be excluded in stdin expand mode"
+    );
+    assert!(
+        out.contains("visible.txt"),
+        "Visible files should be included in stdin expand mode"
+    );
 }
 
 #[test]
@@ -667,7 +700,7 @@ fn test_git_dir_is_always_excluded() {
     fs::write(root.join(".git/config"), "[core]\nbare = false").unwrap();
     fs::write(root.join(".git/HEAD"), "ref: refs/heads/main").unwrap();
     fs::create_dir(root.join(".git/objects")).unwrap();
-    
+
     // Create regular files
     fs::write(root.join("main.rs"), "fn main() {}").unwrap();
     fs::write(root.join(".env"), "SECRET=123").unwrap();
@@ -676,8 +709,14 @@ fn test_git_dir_is_always_excluded() {
     let (out, _, ok) = run_tree2md([p(&root)]);
     assert!(ok);
     assert!(out.contains("main.rs"), "Regular files should be shown");
-    assert!(out.contains(".env"), "Hidden files should be shown by default");
-    assert!(!out.contains(".git"), ".git directory should always be excluded");
+    assert!(
+        out.contains(".env"),
+        "Hidden files should be shown by default"
+    );
+    assert!(
+        !out.contains(".git"),
+        ".git directory should always be excluded"
+    );
     assert!(!out.contains("config"), ".git contents should not be shown");
     assert!(!out.contains("HEAD"), ".git contents should not be shown");
 
@@ -686,7 +725,10 @@ fn test_git_dir_is_always_excluded() {
     assert!(ok);
     assert!(out.contains("main.rs"));
     assert!(out.contains(".env"));
-    assert!(!out.contains(".git"), ".git should be excluded even with --no-gitignore");
+    assert!(
+        !out.contains(".git"),
+        ".git should be excluded even with --no-gitignore"
+    );
 
     // Test 3: stdin with expand-dirs should also exclude .git
     use assert_cmd::Command;
@@ -700,5 +742,8 @@ fn test_git_dir_is_always_excluded() {
     let out = String::from_utf8_lossy(&output.stdout).to_string();
     assert!(out.contains("main.rs"));
     assert!(out.contains(".env"));
-    assert!(!out.contains(".git"), ".git should be excluded in stdin expand mode");
+    assert!(
+        !out.contains(".git"),
+        ".git should be excluded in stdin expand mode"
+    );
 }

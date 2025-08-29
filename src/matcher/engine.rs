@@ -33,7 +33,6 @@ pub struct MatcherEngine {
     /// Whether we have any include rules
     has_includes: bool,
 
-
     /// Whether matching is case sensitive
     case_sensitive: bool,
 }
@@ -255,7 +254,6 @@ impl MatcherEngine {
 
         false
     }
-
 }
 
 #[cfg(test)]
@@ -354,7 +352,7 @@ mod tests {
         // .git directory is always excluded
         let git_dir = RelPath::from_relative(".git");
         assert_eq!(engine.select_dir(&git_dir), Selection::PruneDir);
-        
+
         // Other hidden directories are included (filtered by WalkBuilder)
         let other_hidden_dir = RelPath::from_relative(".config");
         assert_eq!(engine.select_dir(&other_hidden_dir), Selection::Include);

@@ -41,7 +41,10 @@ pub struct Args {
     pub exclude_hidden: bool,
 
     /// Do not respect .gitignore files (default: respect .gitignore)
-    #[arg(long = "no-gitignore", help = "Ignore .gitignore files and include all files")]
+    #[arg(
+        long = "no-gitignore",
+        help = "Ignore .gitignore files and include all files"
+    )]
     pub no_gitignore: bool,
 
     /// Find files matching wildcard patterns (e.g., "*.rs", "src/**/*.go")

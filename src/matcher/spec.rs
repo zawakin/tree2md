@@ -21,7 +21,6 @@ pub struct MatchSpec {
 
     /// Keep directories until pruned (usually true to allow tree building)
     pub keep_dirs_until_pruned: bool,
-
 }
 
 impl Default for MatchSpec {
