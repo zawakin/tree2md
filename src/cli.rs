@@ -3,14 +3,6 @@ use clap::{Parser, ValueEnum};
 pub const VERSION: &str = "0.6.0";
 
 #[derive(Debug, Clone, ValueEnum)]
-pub enum StdinMode {
-    /// Use only files from stdin
-    Authoritative,
-    /// Merge stdin files with directory scan
-    Merge,
-}
-
-#[derive(Debug, Clone, ValueEnum)]
 pub enum DisplayPathMode {
     /// Display relative paths from display root
     Relative,
@@ -69,20 +61,8 @@ pub struct Args {
     pub find_patterns: Vec<String>,
 
     /// Read file paths from stdin (newline-delimited)
-    #[arg(long = "stdin", conflicts_with = "stdin0")]
+    #[arg(long = "stdin")]
     pub stdin: bool,
-
-    /// Read file paths from stdin (null-delimited)
-    #[arg(long = "stdin0", conflicts_with = "stdin")]
-    pub stdin0: bool,
-
-    /// Stdin mode: 'authoritative' (default) or 'merge'
-    #[arg(long = "stdin-mode", value_enum, default_value = "authoritative")]
-    pub stdin_mode: StdinMode,
-
-    /// Keep the input order from stdin (default: sort alphabetically)
-    #[arg(long = "keep-order")]
-    pub keep_order: bool,
 
     /// Base directory for resolving relative paths from stdin
     #[arg(long = "base", default_value = ".")]

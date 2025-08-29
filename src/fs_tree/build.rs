@@ -157,8 +157,8 @@ pub fn build_tree_with_spec(
         // Build the tree structure from the flat map
         build_tree_from_map(&mut root_node, &nodes_map, path_buf)?;
 
-        // With early pruning, we shouldn't need to remove empty directories
-        // But we can keep this as a safety measure if include rules are used
+        // PruneDir prevents descending into directories but doesn't remove them from output.
+        // When include rules filter out all files in a directory, we need to clean up empty dirs.
         if spec.has_includes() {
             remove_empty_directories(&mut root_node);
         }
@@ -209,7 +209,8 @@ fn build_tree_from_map(
     Ok(())
 }
 
-/// Remove empty directories from the tree
+/// Remove directories that have no children after filtering.
+/// This is needed because PruneDir only prevents descending, it doesn't remove the directory node.
 fn remove_empty_directories(node: &mut Node) {
     if !node.is_dir {
         return;

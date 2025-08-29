@@ -1,15 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct StdinConfig {
-    pub null_delimited: bool,
     pub base_dir: PathBuf,
     pub restrict_root: Option<PathBuf>,
     pub expand_dirs: bool,
-    pub keep_order: bool,
     pub respect_gitignore: bool,
 }
 
@@ -68,11 +66,7 @@ pub struct StdinResult {
 }
 
 pub fn process_stdin_input(config: &StdinConfig) -> Result<StdinResult> {
-    let raw_inputs = if config.null_delimited {
-        read_null_delimited_strings()?
-    } else {
-        read_line_delimited_strings()?
-    };
+    let raw_inputs = read_line_delimited_strings()?;
 
     process_stdin_input_from_raw(&raw_inputs, config)
 }
@@ -147,15 +141,8 @@ pub fn process_stdin_input_from_raw(
         }
     }
 
-    // Remove duplicates while preserving order if needed
-    result = if config.keep_order {
-        dedup_preserving_order(result)
-    } else {
-        let mut sorted = result;
-        sorted.sort();
-        sorted.dedup();
-        sorted
-    };
+    // Remove duplicates while preserving input order
+    result = dedup_preserving_order(result);
 
     if result.is_empty() {
         return Err(StdinError::NoValidFiles);
@@ -179,21 +166,6 @@ fn read_line_delimited_strings() -> io::Result<Vec<String>> {
             inputs.push(trimmed.to_string());
         }
     }
-
-    Ok(inputs)
-}
-
-fn read_null_delimited_strings() -> io::Result<Vec<String>> {
-    let stdin = io::stdin();
-    let mut reader = stdin.lock();
-    let mut buffer = Vec::new();
-    reader.read_to_end(&mut buffer)?;
-
-    let inputs: Vec<String> = buffer
-        .split(|&b| b == 0)
-        .filter(|s| !s.is_empty())
-        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-        .collect();
 
     Ok(inputs)
 }

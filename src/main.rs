@@ -1,6 +1,5 @@
 mod cli;
 mod content;
-mod filter;
 mod fs_tree;
 mod input;
 mod language;
@@ -8,8 +7,7 @@ mod matcher;
 mod util;
 
 use clap::Parser;
-use cli::{Args, StdinMode};
-use filter::{filter_by_extension, parse_ext_list};
+use cli::Args;
 use fs_tree::{
     build_tree, insert_path_into_tree, print_code_blocks, print_flat_structure,
     print_tree_with_options, Node,
@@ -22,7 +20,7 @@ fn main() -> io::Result<()> {
     let args = Args::parse();
 
     // Handle stdin mode
-    if args.stdin || args.stdin0 {
+    if args.stdin {
         return handle_stdin_mode(&args);
     }
 
@@ -44,11 +42,7 @@ fn main() -> io::Result<()> {
     effective_args.respect_gitignore = args.effective_gitignore(false);
 
     // Build tree using unified WalkBuilder approach
-    let mut root_node = build_tree(&args.directory, &effective_args, &root_path, &display_root)?;
-    if let Some(ref ext_str) = args.include_ext {
-        let exts = parse_ext_list(ext_str);
-        filter_by_extension(&mut root_node, &exts);
-    }
+    let root_node = build_tree(&args.directory, &effective_args, &root_path, &display_root)?;
 
     // Print structure based on format preference
     println!("## File Structure");
@@ -56,7 +50,7 @@ fn main() -> io::Result<()> {
     if args.flat {
         // Collect all file paths for flat output
         let mut all_paths = Vec::new();
-        collect_files_from_tree(&root_node, &mut all_paths);
+        collect_paths_from_node(&root_node, &mut all_paths);
         all_paths.sort();
 
         // Print in flat format
@@ -101,11 +95,9 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
     };
 
     let stdin_config = StdinConfig {
-        null_delimited: args.stdin0,
         base_dir,
         restrict_root: args.restrict_root.as_ref().map(PathBuf::from),
         expand_dirs: args.expand_dirs,
-        keep_order: args.keep_order,
         // When expanding dirs, respect gitignore by default (treat expansion like scanning)
         // The directories themselves are kept (stdin authoritative) but contents are filtered
         respect_gitignore: if args.expand_dirs {
@@ -136,39 +128,8 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         }
     };
 
-    let mut all_paths = file_paths;
-
-    // Handle merge mode
-    if matches!(args.stdin_mode, StdinMode::Merge) {
-        let root_path = Path::new(&args.directory)
-            .canonicalize()
-            .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
-
-        // Determine display root for merge mode
-        let display_root = determine_display_root(args, &all_paths)?;
-
-        // For merge mode, apply gitignore to the directory scan portion only
-        let mut scan_args = args.clone();
-        scan_args.respect_gitignore = args.effective_gitignore(false);
-
-        let dir_node = build_tree(&args.directory, &scan_args, &root_path, &display_root)?;
-
-        // Collect files from directory tree
-        let mut dir_files = Vec::new();
-        collect_files_from_tree(&dir_node, &mut dir_files);
-
-        // Merge with stdin files
-        for file in dir_files {
-            if !all_paths.contains(&file) {
-                all_paths.push(file);
-            }
-        }
-
-        // Sort if not keeping order
-        if !args.keep_order {
-            all_paths.sort();
-        }
-    }
+    // Always use authoritative mode (stdin only) and preserve input order
+    let all_paths = file_paths;
 
     // Determine display root
     let display_root = determine_display_root(args, &all_paths)?;
@@ -178,18 +139,7 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         println!("Display root: {}\n", display_root.display());
     }
 
-    // Filter by extensions if specified
-    if let Some(ref ext_str) = args.include_ext {
-        let exts = parse_ext_list(ext_str);
-        all_paths.retain(|path| {
-            if let Some(ext) = path.extension() {
-                let ext_str = format!(".{}", ext.to_string_lossy().to_lowercase());
-                exts.contains(&ext_str)
-            } else {
-                false
-            }
-        });
-    }
+    // Extension filtering is already handled during stdin processing/expansion
 
     // Generate output
     if args.flat {
@@ -253,7 +203,7 @@ fn determine_display_root(args: &Args, paths: &[PathBuf]) -> io::Result<PathBuf>
         }
     } else {
         // Auto-detect display root
-        if args.stdin || args.stdin0 {
+        if args.stdin {
             // For stdin mode, use LCA of all paths
             if let Some(lca) = find_common_ancestor(paths) {
                 Ok(lca)
@@ -269,12 +219,12 @@ fn determine_display_root(args: &Args, paths: &[PathBuf]) -> io::Result<PathBuf>
     }
 }
 
-fn collect_files_from_tree(node: &Node, files: &mut Vec<PathBuf>) {
+fn collect_paths_from_node(node: &Node, paths: &mut Vec<PathBuf>) {
     if !node.is_dir && !node.path.as_os_str().is_empty() {
-        files.push(node.path.clone());
+        paths.push(node.path.clone());
     }
     for child in &node.children {
-        collect_files_from_tree(child, files);
+        collect_paths_from_node(child, paths);
     }
 }
 

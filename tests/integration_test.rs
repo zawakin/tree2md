@@ -332,33 +332,6 @@ fn test_stdin_authoritative_ignored_file() {
     );
 }
 
-#[test]
-fn test_stdin_merge_mode_gitignore() {
-    use assert_cmd::Command;
-
-    let (_tmp, root) = setup_gitignore_fixture();
-    let ignored = root.join("target/debug.out");
-
-    let assert = Command::cargo_bin("tree2md")
-        .expect("bin")
-        .args([
-            p(&root),
-            "--stdin".into(),
-            "--stdin-mode".into(),
-            "merge".into(),
-        ])
-        .write_stdin(format!("{}\n", p(&ignored)))
-        .assert();
-
-    let output = assert.success().get_output().clone();
-    let out = String::from_utf8_lossy(&output.stdout).to_string();
-
-    assert!(out.contains("debug.out"));
-    assert!(out.contains("main.rs"));
-    assert!(out.contains("README.md"));
-    assert!(!out.contains("node_modules"));
-    assert!(!out.contains("test.tmp"));
-}
 
 #[test]
 fn test_stdin_expand_dirs_default() {
