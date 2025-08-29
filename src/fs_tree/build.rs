@@ -58,7 +58,7 @@ pub fn build_tree_with_spec(
         // Use WalkBuilder for recursive directory traversal
         let mut walker = WalkBuilder::new(path);
         walker
-            .hidden(!args.all)
+            .hidden(args.exclude_hidden)
             .git_ignore(false) // We handle gitignore in MatcherEngine
             .git_global(false)
             .git_exclude(false)

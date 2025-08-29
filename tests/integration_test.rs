@@ -596,3 +596,109 @@ fn test_permission_denied() {
         );
     }
 }
+
+// --------------------------------------------------------------------------------
+// Hidden files handling tests
+// --------------------------------------------------------------------------------
+
+#[test]
+fn test_hidden_files_shown_by_default() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::write(root.join(".env"), "X=1").unwrap();
+    fs::write(root.join(".gitignore"), "target/").unwrap();
+    fs::write(root.join("visible.txt"), "visible").unwrap();
+    
+    let (out, _, ok) = run_tree2md([p(&root)]);
+    assert!(ok);
+    assert!(out.contains(".env"), "Hidden files should be shown by default");
+    assert!(out.contains(".gitignore"), "Hidden files should be shown by default");
+    assert!(out.contains("visible.txt"));
+}
+
+#[test]
+fn test_exclude_hidden_flag() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::write(root.join(".env"), "X=1").unwrap();
+    fs::write(root.join(".gitignore"), "target/").unwrap();
+    fs::write(root.join("visible.txt"), "visible").unwrap();
+    fs::create_dir(root.join(".hidden_dir")).unwrap();
+    fs::write(root.join(".hidden_dir/file.txt"), "hidden").unwrap();
+    
+    let (out, _, ok) = run_tree2md([p(&root), "--exclude-hidden".into()]);
+    assert!(ok);
+    assert!(!out.contains(".env"), "Hidden files should be excluded with --exclude-hidden");
+    assert!(!out.contains(".gitignore"), "Hidden files should be excluded with --exclude-hidden");
+    assert!(!out.contains(".hidden_dir"), "Hidden directories should be excluded with --exclude-hidden");
+    assert!(out.contains("visible.txt"), "Visible files should still be shown");
+}
+
+#[test]
+fn test_stdin_expand_dirs_exclude_hidden() {
+    use assert_cmd::Command;
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    fs::create_dir(root.join(".hidden_dir")).unwrap();
+    fs::write(root.join(".hidden_dir/file.txt"), "x").unwrap();
+    fs::write(root.join(".env"), "SECRET=1").unwrap();
+    fs::write(root.join("visible.txt"), "visible").unwrap();
+
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([p(&root), "--stdin".into(), "--expand-dirs".into(), "--exclude-hidden".into()])
+        .write_stdin(".\n")
+        .assert();
+
+    let output = assert.success().get_output().clone();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(!out.contains(".hidden_dir"), "Hidden dirs should be excluded in stdin expand mode");
+    assert!(!out.contains(".env"), "Hidden files should be excluded in stdin expand mode");
+    assert!(out.contains("visible.txt"), "Visible files should be included in stdin expand mode");
+}
+
+#[test]
+fn test_git_dir_is_always_excluded() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+
+    // Create .git directory with some files
+    fs::create_dir(root.join(".git")).unwrap();
+    fs::write(root.join(".git/config"), "[core]\nbare = false").unwrap();
+    fs::write(root.join(".git/HEAD"), "ref: refs/heads/main").unwrap();
+    fs::create_dir(root.join(".git/objects")).unwrap();
+    
+    // Create regular files
+    fs::write(root.join("main.rs"), "fn main() {}").unwrap();
+    fs::write(root.join(".env"), "SECRET=123").unwrap();
+
+    // Test 1: Default behavior (shows hidden files but not .git)
+    let (out, _, ok) = run_tree2md([p(&root)]);
+    assert!(ok);
+    assert!(out.contains("main.rs"), "Regular files should be shown");
+    assert!(out.contains(".env"), "Hidden files should be shown by default");
+    assert!(!out.contains(".git"), ".git directory should always be excluded");
+    assert!(!out.contains("config"), ".git contents should not be shown");
+    assert!(!out.contains("HEAD"), ".git contents should not be shown");
+
+    // Test 2: Even with --no-gitignore, .git should still be excluded
+    let (out, _, ok) = run_tree2md([p(&root), "--no-gitignore".into()]);
+    assert!(ok);
+    assert!(out.contains("main.rs"));
+    assert!(out.contains(".env"));
+    assert!(!out.contains(".git"), ".git should be excluded even with --no-gitignore");
+
+    // Test 3: stdin with expand-dirs should also exclude .git
+    use assert_cmd::Command;
+    let assert = Command::cargo_bin("tree2md")
+        .expect("bin")
+        .args([p(&root), "--stdin".into(), "--expand-dirs".into()])
+        .write_stdin(".\n")
+        .assert();
+
+    let output = assert.success().get_output().clone();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(out.contains("main.rs"));
+    assert!(out.contains(".env"));
+    assert!(!out.contains(".git"), ".git should be excluded in stdin expand mode");
+}

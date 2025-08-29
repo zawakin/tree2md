@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-pub const VERSION: &str = "0.6.0";
+pub const VERSION: &str = "0.7.0";
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum DisplayPathMode {
@@ -17,7 +17,7 @@ pub enum DisplayPathMode {
 #[command(version = VERSION)]
 #[command(about = "Scans directories and outputs their structure in Markdown format")]
 #[command(
-    long_about = "Scans directories and outputs their structure in Markdown format.\n\nBy default, .gitignore files are respected for directory scans.\nUse --no-gitignore to include ignored files."
+    long_about = "Scans directories and outputs their structure in Markdown format.\n\nBy default, .gitignore files are respected for directory scans.\nUse --no-gitignore to include ignored files.\n\nNote: The .git/ directory is always excluded for safety and cleanliness."
 )]
 pub struct Args {
     /// Include file contents (code blocks)
@@ -36,9 +36,9 @@ pub struct Args {
     #[arg(short = 'e', long = "include-ext")]
     pub include_ext: Option<String>,
 
-    /// Include hidden files and directories
-    #[arg(short = 'a', long = "all")]
-    pub all: bool,
+    /// Exclude hidden files and directories (dotfiles, OS-hidden)
+    #[arg(long = "exclude-hidden")]
+    pub exclude_hidden: bool,
 
     /// Do not respect .gitignore files (default: respect .gitignore)
     #[arg(long = "no-gitignore", help = "Ignore .gitignore files and include all files")]

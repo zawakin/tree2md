@@ -1,6 +1,6 @@
 [package]
 name = "tree2md"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 authors = ["zawakin"]
 description = "Like the tree command, but outputs in Markdown. Optionally embed file contents as code blocks."

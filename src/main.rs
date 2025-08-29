@@ -90,6 +90,7 @@ fn handle_stdin_mode(args: &Args) -> io::Result<()> {
         } else {
             false // Not expanding, so this field doesn't matter
         },
+        exclude_hidden: args.exclude_hidden,
     };
 
     // Process stdin input and get both canonical paths and original inputs

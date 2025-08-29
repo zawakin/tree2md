@@ -178,6 +178,11 @@ impl MatcherEngine {
     pub fn select_dir(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
 
+        // Always exclude .git directory
+        if path_str == ".git" || path_str.starts_with(".git/") {
+            return Selection::PruneDir;
+        }
+
         // Hidden directories are already filtered by WalkBuilder
 
         // Check gitignore for directories
@@ -346,7 +351,12 @@ mod tests {
         let hidden_file = RelPath::from_relative(".gitignore");
         assert_eq!(engine.select_file(&hidden_file), Selection::Include);
 
-        let hidden_dir = RelPath::from_relative(".git");
-        assert_eq!(engine.select_dir(&hidden_dir), Selection::Include);
+        // .git directory is always excluded
+        let git_dir = RelPath::from_relative(".git");
+        assert_eq!(engine.select_dir(&git_dir), Selection::PruneDir);
+        
+        // Other hidden directories are included (filtered by WalkBuilder)
+        let other_hidden_dir = RelPath::from_relative(".config");
+        assert_eq!(engine.select_dir(&other_hidden_dir), Selection::Include);
     }
 }

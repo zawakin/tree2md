@@ -9,6 +9,7 @@ pub struct StdinConfig {
     pub restrict_root: Option<PathBuf>,
     pub expand_dirs: bool,
     pub respect_gitignore: bool,
+    pub exclude_hidden: bool,
 }
 
 #[derive(Debug)]
@@ -131,9 +132,9 @@ pub fn process_stdin_input_from_raw(
                 // Include the directory itself in the results first (stdin authoritative)
                 // The directory was explicitly provided, so it should be in the output
                 if config.respect_gitignore {
-                    expand_directory_with_gitignore(&dir, &mut result)?;
+                    expand_directory_with_gitignore(&dir, &mut result, config.exclude_hidden)?;
                 } else {
-                    expand_directory(&dir, &mut result)?;
+                    expand_directory(&dir, &mut result, config.exclude_hidden)?;
                 }
             }
         } else {
@@ -176,21 +177,32 @@ fn is_within(path: &Path, root: &Path) -> io::Result<bool> {
     Ok(path.starts_with(&root))
 }
 
-fn expand_directory(dir: &Path, result: &mut Vec<PathBuf>) -> io::Result<()> {
+fn expand_directory(dir: &Path, result: &mut Vec<PathBuf>, exclude_hidden: bool) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
 
+        // Always exclude .git directory
+        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+            if name == ".git" {
+                continue;
+            }
+            // Exclude hidden files and directories if requested
+            if exclude_hidden && name.starts_with('.') {
+                continue;
+            }
+        }
+
         if path.is_file() {
             result.push(path);
         } else if path.is_dir() {
-            expand_directory(&path, result)?;
+            expand_directory(&path, result, exclude_hidden)?;
         }
     }
     Ok(())
 }
 
-fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io::Result<()> {
+fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>, exclude_hidden: bool) -> io::Result<()> {
     use ignore::{gitignore::GitignoreBuilder, WalkBuilder};
 
     // 1) Build gitignore with dir's parent as base to check if dir itself is ignored
@@ -281,7 +293,7 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
     // 2) Use WalkBuilder with filter_entry for pre-pruning
     let mut walker = WalkBuilder::new(base);
     walker
-        .hidden(false)
+        .hidden(exclude_hidden)
         .git_ignore(false)  // Disable WalkBuilder's gitignore, use our own
         .git_global(false)  // We handle global gitignore ourselves
         .git_exclude(false) // We handle git exclude ourselves
@@ -290,6 +302,13 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
             let gi = gi.clone();
             let base = base.to_path_buf(); // Clone base for the closure
             move |entry| {
+                // Always exclude .git directory
+                if let Some(name) = entry.path().file_name().and_then(|s| s.to_str()) {
+                    if name == ".git" {
+                        return false; // Prune .git directory
+                    }
+                }
+                
                 if let Some(ref gi) = gi {
                     // Use relative path from base for matching
                     if let Ok(rel) = entry.path().strip_prefix(&base) {
@@ -308,6 +327,14 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
     for entry in walker.build() {
         if let Ok(entry) = entry {
             let p = entry.path();
+            
+            // Always exclude .git directory
+            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                if name == ".git" {
+                    continue;
+                }
+            }
+            
             let is_file = entry.file_type()
                 .map(|t| t.is_file())
                 .unwrap_or_else(|| p.is_file());

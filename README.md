@@ -83,9 +83,10 @@ tree2md src -c | clip
 * Markdown-formatted directory trees
 * Optional file contents as fenced code blocks (with language hints)
 * Extension filters and glob patterns
-* Honors `.gitignore` (opt-in)
+* Honors `.gitignore` by default (use `--no-gitignore` to disable)
 * Truncate large files by **bytes** or **lines**
-* Hidden files/dirs support
+* Hidden files/dirs shown by default (use `--exclude-hidden` to hide)
+* `.git/` directory is always excluded for safety and cleanliness
 * Read paths from **stdin** (newline or NUL-delimited)
 * **Flat** output for discrete file sets
 * Security guardrail with `--restrict-root`
@@ -139,7 +140,7 @@ tree2md src -e .rs,.toml
 # 4) Find with glob patterns (repeatable)
 tree2md -f "*.rs" -f "src/**/*.rs"
 
-# 5) Include hidden files and respect .gitignore
+# 5) Exclude hidden files and respect .gitignore
 tree2md -a --respect-gitignore
 
 # 6) Truncate embedded contents (lines or bytes)
@@ -169,7 +170,9 @@ git diff --name-only HEAD~1 | tree2md --stdin
 * `--max-lines <N>` — limit file content to first **N lines**
 * `-e, --include-ext <EXTS>` — comma-separated list (e.g. `.go,.py`)
 * `-f, --find <PATTERN>` — glob pattern (repeatable), e.g. `"src/**/*.rs"`
-* `-a, --all` — include hidden files/dirs
+* `--exclude-hidden` — exclude hidden files/dirs (dotfiles)
+
+**Note:** The `.git/` directory is always excluded regardless of flags.
 * `--respect-gitignore` — honor `.gitignore` rules
 * `-h, --help` / `-V, --version`
 

@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-08-29
+### Changed
+- **BREAKING**: Changed default behavior for hidden files
+  - Hidden files and directories are now shown by default
+  - Removed `--all` flag (deprecated)
+  - Added `--exclude-hidden` flag to hide dotfiles when needed
+  - This aligns with the principle that `.gitignore` is authoritative for exclusions
+- **BREAKING**: `.gitignore` is now respected by default
+  - Previously required explicit opt-in
+  - Use `--no-gitignore` to disable gitignore processing
+
+### Added
+- `--exclude-hidden` flag to exclude hidden files and directories
+- Consistent hidden file handling across all modes (directory scan, stdin, stdin with --expand-dirs)
+- `.git/` directory is now always excluded for safety and cleanliness (regardless of any flags)
+
+### Removed
+- `--all` flag (use default behavior to show hidden files)
+
 ## [0.6.0] - 2025-08-28
 ### Added
 - Comprehensive gitignore support using `ignore::WalkBuilder`
