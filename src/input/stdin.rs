@@ -193,10 +193,9 @@ fn expand_directory(dir: &Path, result: &mut Vec<PathBuf>) -> io::Result<()> {
 fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io::Result<()> {
     use ignore::{gitignore::GitignoreBuilder, WalkBuilder};
 
-    // Build gitignore to check if this directory itself should be ignored
-    let mut builder = GitignoreBuilder::new(
-        dir.parent().unwrap_or(dir)
-    );
+    // 1) Build gitignore with dir's parent as base to check if dir itself is ignored
+    let base_for_check = dir.parent().unwrap_or(dir);
+    let mut builder = GitignoreBuilder::new(base_for_check);
 
     // Collect .gitignore files from parent chain
     let mut cur = dir.to_path_buf();
@@ -211,34 +210,88 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
             break;
         }
     }
-
-    if let Ok(gi) = builder.build() {
-        if gi.matched(dir, true).is_ignore() {
-            // Directory itself is ignored, don't expand
-            return Ok(());
+    // Add global gitignore if exists
+    if let Some(home) = dirs::home_dir() {
+        let global = home.join(".gitignore");
+        if global.exists() {
+            builder.add(global);
         }
     }
+    
+    // Check if the directory itself is ignored
+    if let Ok(gi) = builder.build() {
+        if let Ok(rel) = dir.strip_prefix(base_for_check) {
+            if gi.matched(rel, true).is_ignore() {
+                // Directory itself is ignored, don't expand
+                return Ok(());
+            }
+        }
+    }
+    
+    // 2) Build gitignore again with dir as base for filtering contents
+    let base = dir;
+    let mut builder = GitignoreBuilder::new(base);
 
-    // Let WalkBuilder handle gitignore for the contents
-    let walker = WalkBuilder::new(dir)
+    // Collect .gitignore files from parent chain again
+    let mut cur = base.to_path_buf();
+    loop {
+        let gi = cur.join(".gitignore");
+        if gi.exists() {
+            builder.add(gi);
+        }
+        if let Some(p) = cur.parent() {
+            cur = p.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    // Add global gitignore if exists
+    if let Some(home) = dirs::home_dir() {
+        let global = home.join(".gitignore");
+        if global.exists() {
+            builder.add(global);
+        }
+    }
+    let gi = builder.build().ok();
+
+    // 2) Use WalkBuilder with filter_entry for pre-pruning
+    let mut walker = WalkBuilder::new(base);
+    walker
         .hidden(false)
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
-        .build();
-
-    for entry in walker {
-        match entry {
-            Ok(entry) => {
-                let path = entry.path();
-                if path.is_file() {
-                    result.push(path.to_path_buf());
+        .parents(true)
+        .filter_entry({
+            let gi = gi.clone();
+            let base = base.to_path_buf(); // Clone base for the closure
+            move |entry| {
+                if let Some(ref gi) = gi {
+                    // Use relative path from base for matching
+                    if let Ok(rel) = entry.path().strip_prefix(&base) {
+                        let is_dir = entry.file_type()
+                            .map(|t| t.is_dir())
+                            .unwrap_or_else(|| entry.path().is_dir());
+                        if gi.matched(rel, is_dir).is_ignore() {
+                            return false; // Prune here before descending
+                        }
+                    }
                 }
+                true
             }
-            Err(_) => continue,
+        });
+
+    for entry in walker.build() {
+        if let Ok(entry) = entry {
+            let p = entry.path();
+            let is_file = entry.file_type()
+                .map(|t| t.is_file())
+                .unwrap_or_else(|| p.is_file());
+            if is_file {
+                result.push(p.to_path_buf());
+            }
         }
     }
-
     Ok(())
 }
 
