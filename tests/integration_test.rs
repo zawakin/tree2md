@@ -422,6 +422,55 @@ fn test_stdin_expand_ignored_dir() {
 }
 
 #[test]
+fn test_stdin_expand_parent_gitignore() {
+    // Test that parent directory's .gitignore affects child directories
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    
+    // Create parent directory with .gitignore
+    let parent = root.join("parent");
+    fs::create_dir(&parent).unwrap();
+    
+    // Create .gitignore in parent that ignores "ignored_subdir"
+    fs::write(parent.join(".gitignore"), "ignored_subdir/\n*.tmp\n").unwrap();
+    
+    // Create child directory
+    let child = parent.join("child");
+    fs::create_dir(&child).unwrap();
+    
+    // Create files in child
+    fs::write(child.join("file1.txt"), "content1").unwrap();
+    fs::write(child.join("file2.tmp"), "temp file").unwrap();  // Should be ignored by parent's .gitignore
+    
+    // Create ignored subdirectory in child  
+    let ignored_sub = child.join("ignored_subdir");
+    fs::create_dir(&ignored_sub).unwrap();
+    fs::write(ignored_sub.join("ignored.txt"), "ignored content").unwrap();
+    
+    // Test expanding child directory - should respect parent's .gitignore
+    let assert = assert_cmd::Command::cargo_bin("tree2md")
+        .expect("bin")
+        .arg(&root)
+        .arg("--stdin")
+        .arg("--expand-dirs")
+        .write_stdin(format!("{}\n", child.display()))
+        .assert();
+    
+    let output = assert.success().get_output().clone();
+    let out = String::from_utf8_lossy(&output.stdout).to_string();
+    
+    // Should include file1.txt
+    assert!(out.contains("file1.txt"), "Should include file1.txt");
+    
+    // Should NOT include file2.tmp (ignored by parent's *.tmp pattern)
+    assert!(!out.contains("file2.tmp"), "Should not include file2.tmp");
+    
+    // Should NOT include ignored_subdir (ignored by parent's ignored_subdir/ pattern)
+    assert!(!out.contains("ignored_subdir"), "Should not include ignored_subdir");
+    assert!(!out.contains("ignored.txt"), "Should not include files in ignored_subdir");
+}
+
+#[test]
 fn test_sample_empty_file_handling() {
     let (_tmp, root) = setup_sample_dir();
 

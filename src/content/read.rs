@@ -80,6 +80,13 @@ pub fn load_file_content_with_limits(
         total_lines = total_lines.saturating_add(1);
 
         if truncated {
+            // Once truncated, just count remaining lines without processing
+            if let Some(max_l) = max_lines {
+                if total_lines >= max_l * 2 {
+                    // Stop counting after reaching double the max lines
+                    break;
+                }
+            }
             continue;
         }
 

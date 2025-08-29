@@ -199,15 +199,27 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
 
     // Collect .gitignore files from parent chain
     let mut cur = dir.to_path_buf();
+    let mut git_root = None;
     loop {
         let gi = cur.join(".gitignore");
         if gi.exists() {
             builder.add(gi);
         }
+        // Check if this is a git repository root
+        if cur.join(".git").exists() && git_root.is_none() {
+            git_root = Some(cur.clone());
+        }
         if let Some(p) = cur.parent() {
             cur = p.to_path_buf();
         } else {
             break;
+        }
+    }
+    // Add .git/info/exclude if in a git repository
+    if let Some(root) = git_root {
+        let exclude = root.join(".git/info/exclude");
+        if exclude.exists() {
+            builder.add(exclude);
         }
     }
     // Add global gitignore if exists
@@ -234,15 +246,27 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
 
     // Collect .gitignore files from parent chain again
     let mut cur = base.to_path_buf();
+    let mut git_root = None;
     loop {
         let gi = cur.join(".gitignore");
         if gi.exists() {
             builder.add(gi);
         }
+        // Check if this is a git repository root
+        if cur.join(".git").exists() && git_root.is_none() {
+            git_root = Some(cur.clone());
+        }
         if let Some(p) = cur.parent() {
             cur = p.to_path_buf();
         } else {
             break;
+        }
+    }
+    // Add .git/info/exclude if in a git repository
+    if let Some(root) = git_root {
+        let exclude = root.join(".git/info/exclude");
+        if exclude.exists() {
+            builder.add(exclude);
         }
     }
     // Add global gitignore if exists
@@ -258,10 +282,10 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
     let mut walker = WalkBuilder::new(base);
     walker
         .hidden(false)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .parents(true)
+        .git_ignore(false)  // Disable WalkBuilder's gitignore, use our own
+        .git_global(false)  // We handle global gitignore ourselves
+        .git_exclude(false) // We handle git exclude ourselves
+        .parents(false)     // We collect parent gitignores ourselves
         .filter_entry({
             let gi = gi.clone();
             let base = base.to_path_buf(); // Clone base for the closure
