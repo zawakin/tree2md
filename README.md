@@ -74,7 +74,7 @@ tree2md src -c | clip
 | Security boundary (`--restrict-root`) |   ✖︎   |     ✔     |
 | Fast, single-binary (Rust)            |    —   |     ✔     |
 
-\* depending on platform/flags; `tree2md` provides explicit `--respect-gitignore`.
+\* depending on platform/flags; `tree2md` respects `.gitignore` by default.
 
 ---
 
@@ -140,8 +140,8 @@ tree2md src -e .rs,.toml
 # 4) Find with glob patterns (repeatable)
 tree2md -f "*.rs" -f "src/**/*.rs"
 
-# 5) Exclude hidden files and respect .gitignore
-tree2md -a --respect-gitignore
+# 5) Exclude hidden files (shown by default)
+tree2md --exclude-hidden
 
 # 6) Truncate embedded contents (lines or bytes)
 tree2md -c --max-lines 80
@@ -171,29 +171,22 @@ git diff --name-only HEAD~1 | tree2md --stdin
 * `-e, --include-ext <EXTS>` — comma-separated list (e.g. `.go,.py`)
 * `-f, --find <PATTERN>` — glob pattern (repeatable), e.g. `"src/**/*.rs"`
 * `--exclude-hidden` — exclude hidden files/dirs (dotfiles)
+* `--no-gitignore` — ignore `.gitignore` files and include all files
 
 **Note:** The `.git/` directory is always excluded regardless of flags.
-* `--respect-gitignore` — honor `.gitignore` rules
 * `-h, --help` / `-V, --version`
 
 **Stdin mode**
 
 * `--stdin` — read newline-delimited paths from stdin
-* `--stdin0` — read NUL-delimited paths from stdin
-* `--stdin-mode <authoritative|merge>` — default: **authoritative**
-* `--keep-order` — preserve stdin order (default is alphabetical)
-* `--base <DIR>` — base directory to resolve relative stdin paths
 * `--restrict-root <DIR>` — ensure all paths stay within this directory
 * `--expand-dirs` — expand directories received via stdin
 * `--flat` — render a flat list (no tree)
 
 **Display & paths**
 
-* `--display-path <relative|absolute|input>` — default: **relative** *(relative is default in v0.4.0+)*
-* `--display-root <DIR>` — custom root for relative display
+* `--display-path <relative|absolute|input>` — default: **relative**
 * `--strip-prefix <PREFIX>` — remove prefix from display paths (repeatable)
-* `--show-root` — print the display root at the top
-* `--no-root` — omit the root node in tree mode (default in stdin mode)
 * `--root-label <LABEL>` — custom label for the root (e.g. `"."`, `"PROJECT_ROOT"`)
 
 ---
@@ -206,17 +199,8 @@ Use stdin when you already have an exact file list (CI pipelines, `git ls-files`
 # Authoritative: only use files from stdin
 git ls-files "*.ts" | tree2md --stdin -c
 
-# Merge: combine stdin with a directory scan of `src/`
-rg --files --type rust | tree2md --stdin --stdin-mode merge src
-
-# NUL-delimited (handles spaces/newlines in paths)
-find src -type f -name "*.rs" -print0 | tree2md --stdin0
-
 # Expand directories that appear in stdin
 printf '%s\n' src tests | tree2md --stdin --expand-dirs
-
-# Keep stdin order (for prioritized docs)
-echo -e "README.md\nsrc/main.rs\nCargo.toml" | tree2md --stdin --keep-order
 
 # Enforce a project boundary (security)
 rg -l "TODO" | tree2md --stdin --restrict-root "$(pwd)"
@@ -235,9 +219,6 @@ fzf -m | tree2md --stdin --flat -c
 ```bash
 # Show absolute paths
 tree2md --display-path absolute .
-
-# Custom display root and show it at the top
-tree2md --display-root ~/projects/myapp --show-root ~/projects/myapp
 
 # Strip a common prefix from printed paths
 find ~/projects/myapp -type f | tree2md --stdin --strip-prefix ~/projects
