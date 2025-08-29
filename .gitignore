@@ -4,6 +4,9 @@ tree2md
 # Memo files
 z_memo/
 
+# Local files
+*.local.*
+
 # macOS
 .DS_Store
 

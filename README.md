@@ -42,7 +42,7 @@ cargo install tree2md
 # Show directory tree (no file contents)
 tree2md src > PROJECT_STRUCTURE.md
 
-# Include file contents as syntax-highlighted code blocks
+# Include file contents as code blocks
 tree2md src -c > PROJECT_STRUCTURE.md
 ```
 
@@ -128,22 +128,22 @@ Available for:
 ### Common recipes
 
 ```bash
-# 1) Quick overview without contents
+# Quick overview without contents
 tree2md .
 
-# 2) Generate README-style docs with contents
+# Generate README-style docs with contents
 tree2md src -c > PROJECT_STRUCTURE.md
 
-# 3) Filter by extensions
+# Filter by extensions
 tree2md src -e .rs,.toml
 
-# 4) Find with glob patterns (repeatable)
+# Find with glob patterns (repeatable)
 tree2md -f "*.rs" -f "src/**/*.rs"
 
-# 5) Exclude hidden files (shown by default)
+# Exclude hidden files (shown by default)
 tree2md --exclude-hidden
 
-# 6) Truncate embedded contents (lines or bytes)
+# Truncate embedded contents (lines or bytes)
 tree2md -c --max-lines 80
 tree2md -c --truncate 2000
 
@@ -172,9 +172,9 @@ git diff --name-only HEAD~1 | tree2md --stdin
 * `-f, --find <PATTERN>` — glob pattern (repeatable), e.g. `"src/**/*.rs"`
 * `--exclude-hidden` — exclude hidden files/dirs (dotfiles)
 * `--no-gitignore` — ignore `.gitignore` files and include all files
+* `-h, --help` / `-V, --version`
 
 **Note:** The `.git/` directory is always excluded regardless of flags.
-* `-h, --help` / `-V, --version`
 
 **Stdin mode**
 
@@ -196,7 +196,7 @@ git diff --name-only HEAD~1 | tree2md --stdin
 Use stdin when you already have an exact file list (CI pipelines, `git ls-files`, `ripgrep`, `find`).
 
 ```bash
-# Authoritative: only use files from stdin
+# Only use files from stdin (no directory scanning)
 git ls-files "*.ts" | tree2md --stdin -c
 
 # Expand directories that appear in stdin
