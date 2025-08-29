@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-pub const VERSION: &str = "0.6.0";
+pub const VERSION: &str = "0.7.0";
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum DisplayPathMode {

@@ -6,6 +6,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-08-29
+### Changed
+- **BREAKING**: Changed default behavior for hidden files
+  - Hidden files and directories are now shown by default
+  - Removed `--all` flag (no longer needed)
+  - Added `--exclude-hidden` flag to hide dotfiles when needed
+  - This aligns with the principle that `.gitignore` is authoritative for exclusions
+- **BREAKING**: `.gitignore` is now respected by default
+  - Previously required explicit opt-in
+  - Use `--no-gitignore` to disable gitignore processing
+- **BREAKING**: Removed multiple CLI options for simplification
+  - Removed `--stdin0`, `--stdin-mode`, `--keep-order` (stdin simplification)
+  - Removed `--base`, `--display-root`, `--show-root`, `--no-root` (display simplification)  
+  - Removed `--respect-gitignore` (now default behavior)
+- Simple glob patterns (e.g., `*.rs`) are now recursive by default
+  - Matches common user expectations
+  - `*.rs` now finds all Rust files in the tree, not just current directory
+
+### Added
+- `--exclude-hidden` flag to exclude hidden files and directories
+- `.git/` directory is now always excluded for safety and cleanliness
+- Comprehensive integration test suite
+
+### Fixed
+- Correct glob pattern matching behavior for single asterisk
+- Stdin mode base directory resolution and gitignore handling
+- Gitignore handling in stdin expand mode
+- `--flat` option now works correctly
+
+### Improved
+- Refactored to MatcherEngine architecture for better performance
+- Restructured codebase into modular architecture
+- Optimized path matching and filtering
+- Delegated hidden file filtering to WalkBuilder for efficiency
+- Simplified CLI interface by removing redundant options
+- Better code quality and consistency throughout
+
 ## [0.6.0] - 2025-08-28
 ### Added
 - Comprehensive gitignore support using `ignore::WalkBuilder`
