@@ -193,12 +193,11 @@ fn expand_directory(dir: &Path, result: &mut Vec<PathBuf>) -> io::Result<()> {
 fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io::Result<()> {
     use ignore::{gitignore::GitignoreBuilder, WalkBuilder};
 
-    // Build .gitignore (return immediately if directory itself is ignored)
-    let mut builder = if let Some(parent) = dir.parent() {
-        GitignoreBuilder::new(parent)
-    } else {
-        GitignoreBuilder::new(dir)
-    };
+    // Build gitignore to check if this directory itself should be ignored
+    let mut builder = GitignoreBuilder::new(
+        dir.parent().unwrap_or(dir)
+    );
+
     // Collect .gitignore files from parent chain
     let mut cur = dir.to_path_buf();
     loop {
@@ -212,60 +211,27 @@ fn expand_directory_with_gitignore(dir: &Path, result: &mut Vec<PathBuf>) -> io:
             break;
         }
     }
-    // Global gitignore
-    if let Some(home) = dirs::home_dir() {
-        let global = home.join(".gitignore");
-        if global.exists() {
-            builder.add(global);
-        }
-    }
-    let gi = builder.build().ok();
-    if let Some(ref gi) = gi {
+
+    if let Ok(gi) = builder.build() {
         if gi.matched(dir, true).is_ignore() {
-            return Ok(()); // Directory itself is ignored
+            // Directory itself is ignored, don't expand
+            return Ok(());
         }
     }
 
-    // Walk: use filter_entry to prune ignored entries before descending
-    let mut walker = WalkBuilder::new(dir);
-    walker
+    // Let WalkBuilder handle gitignore for the contents
+    let walker = WalkBuilder::new(dir)
         .hidden(false)
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
-        .filter_entry({
-            let gi = gi.clone();
-            move |entry| {
-                if let Some(ref gi) = gi {
-                    let p = entry.path();
-                    let is_dir = entry
-                        .file_type()
-                        .map(|t| t.is_dir())
-                        .unwrap_or_else(|| p.is_dir());
-                    if gi.matched(p, is_dir).is_ignore() {
-                        return false; // Prune here
-                    }
-                }
-                true
-            }
-        });
-    let walker = walker.build();
+        .build();
 
     for entry in walker {
         match entry {
             Ok(entry) => {
                 let path = entry.path();
-                let is_dir = entry
-                    .file_type()
-                    .map(|t| t.is_dir())
-                    .unwrap_or_else(|| path.is_dir());
-                // Final check for safety
-                if let Some(ref gi) = gi {
-                    if gi.matched(path, is_dir).is_ignore() {
-                        continue;
-                    }
-                }
-                if !is_dir && path.is_file() {
+                if path.is_file() {
                     result.push(path.to_path_buf());
                 }
             }

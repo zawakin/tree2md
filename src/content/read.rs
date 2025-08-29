@@ -43,7 +43,7 @@ pub fn load_file_content_with_limits(
     let mut file = fs::File::open(path).map_err(ReadError::Io)?;
 
     let meta_len = file.metadata().ok().map(|m| m.len()).unwrap_or(0);
-    let mut probe = vec![0u8; PROBE_BYTES.min(meta_len as usize).max(0)];
+    let mut probe = vec![0u8; PROBE_BYTES.min(meta_len as usize)];
     let n = file.read(&mut probe).map_err(ReadError::Io)?;
     probe.truncate(n);
 
@@ -55,7 +55,8 @@ pub fn load_file_content_with_limits(
         return Err(ReadError::Binary(meta_len));
     }
 
-    file.seek(std::io::SeekFrom::Start(0)).ok();
+    file.seek(std::io::SeekFrom::Start(0))
+        .map_err(ReadError::Io)?;
     let mut rdr = io::BufReader::new(file);
 
     let total_bytes = meta_len as usize;
@@ -93,9 +94,8 @@ pub fn load_file_content_with_limits(
                     if cut > 0 {
                         result_bytes.extend_from_slice(&buf[..cut]);
                         shown_bytes += cut;
-                        if buf[..cut].contains(&b'\n') {
-                            shown_lines = shown_lines.saturating_add(1);
-                        }
+                        // Count all newlines in the truncated portion
+                        shown_lines += buf[..cut].iter().filter(|&&b| b == b'\n').count();
                     }
                 }
                 truncated = true;

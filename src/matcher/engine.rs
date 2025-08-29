@@ -33,8 +33,6 @@ pub struct MatcherEngine {
     /// Whether we have any include rules
     has_includes: bool,
 
-    /// Whether to include hidden files
-    include_hidden: bool,
 
     /// Whether matching is case sensitive
     case_sensitive: bool,
@@ -60,16 +58,13 @@ impl MatcherEngine {
         let include_globset = if !spec.include_glob.is_empty() {
             let mut builder = GlobSetBuilder::new();
             for pattern in &spec.include_glob {
-                let _glob = Glob::new(pattern)
-                    .map_err(|e| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("Invalid include glob pattern '{}': {}", pattern, e),
-                        )
-                    })?
-                    .compile_matcher();
-
-                builder.add(Glob::new(pattern).unwrap());
+                let glob = Glob::new(pattern).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("Invalid include glob pattern '{}': {}", pattern, e),
+                    )
+                })?;
+                builder.add(glob);
             }
             Some(builder.build().map_err(|e| {
                 io::Error::new(
@@ -146,7 +141,6 @@ impl MatcherEngine {
             exclude_globset,
             gitignore,
             has_includes: spec.has_includes(),
-            include_hidden: spec.include_hidden,
             case_sensitive: spec.case_sensitive,
         })
     }
@@ -155,10 +149,7 @@ impl MatcherEngine {
     pub fn select_file(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
 
-        // Check if it's a hidden file (unless we include hidden files)
-        if !self.include_hidden && self.is_hidden(&path_str) {
-            return Selection::Exclude;
-        }
+        // Hidden files are already filtered by WalkBuilder
 
         // Priority 1: Check include rules (if any)
         if self.has_includes {
@@ -187,10 +178,7 @@ impl MatcherEngine {
     pub fn select_dir(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
 
-        // Check if it's a hidden directory (unless we include hidden files)
-        if !self.include_hidden && self.is_hidden(&path_str) {
-            return Selection::PruneDir;
-        }
+        // Hidden directories are already filtered by WalkBuilder
 
         // Check gitignore for directories
         if let Some(ref gitignore) = self.gitignore {
@@ -263,12 +251,6 @@ impl MatcherEngine {
         false
     }
 
-    /// Check if a path component indicates a hidden file/directory
-    fn is_hidden(&self, path_str: &str) -> bool {
-        path_str
-            .split('/')
-            .any(|component| component.starts_with('.') && component != "." && component != "..")
-    }
 }
 
 #[cfg(test)]
@@ -355,32 +337,16 @@ mod tests {
 
     #[test]
     fn test_hidden_files() {
-        let spec_no_hidden = MatchSpec::new().with_hidden(false);
-        let spec_with_hidden = MatchSpec::new().with_hidden(true);
-
+        // Hidden files are now handled by WalkBuilder, not MatcherEngine
+        let spec = MatchSpec::new();
         let temp_dir = TempDir::new().unwrap();
-        let engine_no_hidden = MatcherEngine::compile(&spec_no_hidden, temp_dir.path()).unwrap();
-        let engine_with_hidden =
-            MatcherEngine::compile(&spec_with_hidden, temp_dir.path()).unwrap();
+        let engine = MatcherEngine::compile(&spec, temp_dir.path()).unwrap();
 
+        // Hidden filtering is done by WalkBuilder, so MatcherEngine always includes
         let hidden_file = RelPath::from_relative(".gitignore");
-        assert_eq!(
-            engine_no_hidden.select_file(&hidden_file),
-            Selection::Exclude
-        );
-        assert_eq!(
-            engine_with_hidden.select_file(&hidden_file),
-            Selection::Include
-        );
+        assert_eq!(engine.select_file(&hidden_file), Selection::Include);
 
         let hidden_dir = RelPath::from_relative(".git");
-        assert_eq!(
-            engine_no_hidden.select_dir(&hidden_dir),
-            Selection::PruneDir
-        );
-        assert_eq!(
-            engine_with_hidden.select_dir(&hidden_dir),
-            Selection::Include
-        );
+        assert_eq!(engine.select_dir(&hidden_dir), Selection::Include);
     }
 }

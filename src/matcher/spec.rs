@@ -22,8 +22,6 @@ pub struct MatchSpec {
     /// Keep directories until pruned (usually true to allow tree building)
     pub keep_dirs_until_pruned: bool,
 
-    /// Include hidden files and directories
-    pub include_hidden: bool,
 }
 
 impl Default for MatchSpec {
@@ -35,7 +33,6 @@ impl Default for MatchSpec {
             respect_gitignore: false,
             case_sensitive: true,
             keep_dirs_until_pruned: true,
-            include_hidden: false,
         }
     }
 }
@@ -89,7 +86,6 @@ impl MatchSpec {
             respect_gitignore: !args.no_gitignore,
             case_sensitive: true, // Could be extended with --ignore-case flag
             keep_dirs_until_pruned: true,
-            include_hidden: args.all,
         }
     }
 
@@ -142,12 +138,6 @@ impl MatchSpec {
         self.case_sensitive = sensitive;
         self
     }
-
-    #[allow(dead_code)]
-    pub fn with_hidden(mut self, include: bool) -> Self {
-        self.include_hidden = include;
-        self
-    }
 }
 
 #[cfg(test)]
@@ -163,7 +153,6 @@ mod tests {
         assert!(!spec.respect_gitignore);
         assert!(spec.case_sensitive);
         assert!(spec.keep_dirs_until_pruned);
-        assert!(!spec.include_hidden);
     }
 
     #[test]
@@ -185,15 +174,13 @@ mod tests {
             .with_include_glob(vec!["src/**/*.rs".to_string()])
             .with_exclude_glob(vec!["target/**".to_string()])
             .with_gitignore(true)
-            .with_case_sensitive(false)
-            .with_hidden(true);
+            .with_case_sensitive(false);
 
         assert_eq!(spec.include_ext.len(), 2);
         assert_eq!(spec.include_glob.len(), 1);
         assert_eq!(spec.exclude_glob.len(), 1);
         assert!(spec.respect_gitignore);
         assert!(!spec.case_sensitive);
-        assert!(spec.include_hidden);
     }
 
     #[test]

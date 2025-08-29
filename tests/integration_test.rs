@@ -414,7 +414,8 @@ fn test_stdin_expand_ignored_dir() {
         .write_stdin("target\n")
         .assert();
 
-    // When expanding an ignored directory, it should fail with "No valid files found"
+    // When expanding an ignored directory, it should be skipped
+    // resulting in "No valid files found" error
     assert
         .failure()
         .stderr(predicate::str::contains("No valid files found"));
