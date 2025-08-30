@@ -1,3 +1,4 @@
+
 # tree2md
 
 [![Crates.io](https://img.shields.io/crates/v/tree2md.svg)](https://crates.io/crates/tree2md)
@@ -5,6 +6,11 @@
 
 **Like the `tree` command, but outputs in Markdown.**
 Scans directories and prints a Markdown-formatted tree. Optionally embed file contents as syntax-highlighted code blocks.
+
+> [!IMPORTANT]
+> This project is currently going through major restructuring 🚧  
+> Some issues may be closed or outdated, but in a few weeks I’ll open new **beginner-friendly issues**.  
+> Contributions are very welcome — thanks to the first community feedback, I’m super motivated! 😄🚀
 
 ---
 
