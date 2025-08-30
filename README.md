@@ -7,10 +7,10 @@
 **Like the `tree` command, but outputs in Markdown.**
 Scans directories and prints a Markdown-formatted tree. Optionally embed file contents as syntax-highlighted code blocks.
 
-> [!IMPORTANT]
-> This project is still in an early stage and currently undergoing major restructuring 🚧  
-> Some issues may be closed or outdated. Once things stabilize, I’ll add new **beginner-friendly issues**.  
-> Contributions are very welcome — thanks to the first community feedback, I’m super motivated! 😄🚀
+> [!NOTE]
+> This project is still in an early stage and changing rapidly 🚧  
+> Contributions are welcome, but responses may take time until things stabilize.  
+> Beginner-friendly issues will be added once the codebase is more settled.
 
 ---
 
