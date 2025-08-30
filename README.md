@@ -1,4 +1,3 @@
-
 # tree2md
 
 [![Crates.io](https://img.shields.io/crates/v/tree2md.svg)](https://crates.io/crates/tree2md)
