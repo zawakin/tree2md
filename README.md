@@ -8,8 +8,8 @@
 Scans directories and prints a Markdown-formatted tree. Optionally embed file contents as syntax-highlighted code blocks.
 
 > [!IMPORTANT]
-> This project is currently going through major restructuring 🚧  
-> Some issues may be closed or outdated, but in a few weeks I’ll open new **beginner-friendly issues**.  
+> This project is still in an early stage and currently undergoing major restructuring 🚧  
+> Some issues may be closed or outdated. Once things stabilize, I’ll add new **beginner-friendly issues**.  
 > Contributions are very welcome — thanks to the first community feedback, I’m super motivated! 😄🚀
 
 ---
