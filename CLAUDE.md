@@ -6,4 +6,5 @@
 - Lint: `cargo clippy -- -D warnings`
 
 ## Rules
+- Think steps. Implement step by step not generating all at once.
 - For debugging, use integration tests in `tests/` instead of using `/tmp` directory in bash command and use `tests/*.rs` as integration tests. Read some tests to understand.
