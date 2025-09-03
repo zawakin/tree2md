@@ -11,7 +11,9 @@ pub struct ProgressAnimation {
     enabled: bool,
     start_time: Option<Instant>,
     last_update: Option<Instant>,
+    #[allow(dead_code)]
     spinner_frames: Vec<&'static str>,
+    #[allow(dead_code)]
     current_frame: usize,
 }
 
@@ -45,6 +47,7 @@ impl ProgressAnimation {
     }
 
     /// Update the animation (call this periodically during work)
+    #[allow(dead_code)]
     pub fn update(&mut self, progress_percent: Option<f32>) {
         if !self.enabled {
             return;
@@ -92,6 +95,7 @@ impl ProgressAnimation {
     }
 
     /// Draw a progress update
+    #[allow(dead_code)]
     fn draw_progress(&self, progress_percent: Option<f32>) {
         if !self.enabled {
             return;
@@ -200,6 +204,7 @@ impl AnimationRunner {
         self.animation = Some(animation);
     }
 
+    #[allow(dead_code)]
     pub fn update(&mut self, progress: f32) {
         if let Some(anim) = &mut self.animation {
             anim.update(Some(progress));

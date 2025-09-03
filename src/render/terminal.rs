@@ -57,6 +57,7 @@ impl<'a> TerminalRenderer<'a> {
     }
 
     // Helper to collect all files for max width calculation
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_all_files(
         &self,
         dir: &IrDir,

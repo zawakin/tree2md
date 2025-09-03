@@ -18,6 +18,7 @@ pub fn format_size(bytes: u64) -> String {
 
 /// Size badge for intuitive classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SizeBadge {
     Xs,  // ≤ 1 KB
     S,   // ≤ 8 KB
@@ -42,6 +43,7 @@ impl std::fmt::Display for SizeBadge {
 }
 
 /// Size marking with badge and optional tick for position within class
+#[allow(dead_code)]
 pub struct SizeMark {
     pub badge: SizeBadge,
     pub human: String,      // "3.1 KB"
@@ -49,6 +51,7 @@ pub struct SizeMark {
 }
 
 /// Get size tick mark only (no badge)
+#[allow(dead_code)]
 pub fn size_mark(bytes: u64) -> SizeMark {
     let human = format_size(bytes);
 
@@ -111,7 +114,7 @@ pub fn loc_to_bar(loc: usize, max_loc_in_dir: usize, bar_width: usize) -> String
 
     // Cap at 1000 lines for normalization
     let capped_loc = loc.min(1000);
-    let capped_max = max_loc_in_dir.min(1000).max(1);
+    let capped_max = max_loc_in_dir.clamp(1, 1000);
 
     // Linear scale within the directory
     let norm = capped_loc as f64 / capped_max as f64;

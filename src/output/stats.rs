@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 // Type alias for backwards compatibility
+#[allow(dead_code)]
 pub type StatsCollector = Stats;
 
 /// Unified statistics collector combining all stats functionality
@@ -79,6 +80,7 @@ impl Stats {
     }
 
     /// Get the total number of directories
+    #[allow(dead_code)]
     pub fn total_dirs(&self) -> usize {
         self.total_dirs
     }

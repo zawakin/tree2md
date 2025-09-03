@@ -4,6 +4,7 @@ use crate::profile::{EmojiMapper, FileType};
 
 /// Output format for the renderer
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub enum OutputFormat {
     /// HTML with <details> tags
     Html,
@@ -14,6 +15,7 @@ pub enum OutputFormat {
 }
 
 /// Configuration for rendering
+#[allow(dead_code)]
 pub struct RenderConfig {
     pub format: OutputFormat,
     pub use_emoji: bool,
@@ -45,20 +47,24 @@ pub trait Renderer {
     fn render_stats(&self, stats: &Stats) -> String;
 
     /// Check if this renderer supports animations
+    #[allow(dead_code)]
     fn supports_animation(&self) -> bool {
         false
     }
 
     /// Check if this renderer supports colors
+    #[allow(dead_code)]
     fn supports_colors(&self) -> bool {
         false
     }
 
     /// Get the output format
+    #[allow(dead_code)]
     fn output_format(&self) -> OutputFormat;
 }
 
 /// Helper struct for managing node metadata during rendering
+#[allow(dead_code)]
 pub struct NodeMetadata {
     pub file_type: FileType,
     pub emoji: String,
@@ -67,6 +73,7 @@ pub struct NodeMetadata {
 }
 
 impl NodeMetadata {
+    #[allow(dead_code)]
     pub fn from_node(node: &Node, emoji_mapper: &EmojiMapper) -> Self {
         let file_type = if node.is_dir {
             FileType::Directory

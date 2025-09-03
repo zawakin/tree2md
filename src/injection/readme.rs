@@ -33,7 +33,8 @@ impl ReadmeInjector {
         let existing_content = fs::read_to_string(readme_path)?;
 
         // Check for existing tags - both must be present
-        if !existing_content.contains(&self.tag_start) || !existing_content.contains(&self.tag_end) {
+        if !existing_content.contains(&self.tag_start) || !existing_content.contains(&self.tag_end)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -78,7 +79,6 @@ impl ReadmeInjector {
             before, self.tag_start, self.content, self.tag_end, after
         ))
     }
-
 }
 
 #[cfg(test)]

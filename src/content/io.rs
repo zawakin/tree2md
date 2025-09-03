@@ -6,6 +6,7 @@ use crate::util::format::{TruncateType, TruncationInfo};
 
 /// Result of probing a file for binary/text characteristics
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ProbeResult {
     pub is_binary: bool,
     pub is_utf8: bool,

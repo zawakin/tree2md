@@ -8,9 +8,11 @@ use std::path::PathBuf;
 pub struct IrFile {
     pub name: String,
     pub display_path: PathBuf,
+    #[allow(dead_code)]
     pub file_type: FileType,
     pub emoji: String,
     pub loc: Option<usize>,
+    #[allow(dead_code)]
     pub size_bytes: u64,
 }
 
@@ -103,11 +105,13 @@ fn build_ir_node(node: &Node, ctx: &mut AggregationContext) -> IrDir {
 /// Extension methods for IR nodes to simplify rendering
 impl IrDir {
     /// Get total count of immediate children (files and directories)
+    #[allow(dead_code)]
     pub fn immediate_child_count(&self) -> (usize, usize) {
         (self.files.len(), self.dirs.len())
     }
 
     /// Check if directory is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.files.is_empty() && self.dirs.is_empty()
     }

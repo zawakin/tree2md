@@ -8,6 +8,7 @@ pub use emoji::EmojiMapper;
 pub use file_type::FileType;
 
 /// A profile defines how a particular file type should be displayed and processed
+#[allow(dead_code)]
 pub trait Profile {
     /// The file type this profile handles
     fn file_type(&self) -> FileType;
@@ -38,21 +39,25 @@ pub trait Profile {
 }
 
 /// Registry for all available profiles
+#[allow(dead_code)]
 pub struct ProfileRegistry {
     profiles: Vec<Box<dyn Profile>>,
 }
 
 impl ProfileRegistry {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             profiles: Vec::new(),
         }
     }
 
+    #[allow(dead_code)]
     pub fn register(&mut self, profile: Box<dyn Profile>) {
         self.profiles.push(profile);
     }
 
+    #[allow(dead_code)]
     pub fn find_profile(&self, path: &Path) -> Option<&dyn Profile> {
         for profile in &self.profiles {
             if profile.matches(path) {
@@ -62,6 +67,7 @@ impl ProfileRegistry {
         None
     }
 
+    #[allow(dead_code)]
     pub fn classify_file(&self, path: &Path) -> FileType {
         if let Some(profile) = self.find_profile(path) {
             profile.file_type()

@@ -1,5 +1,6 @@
 use crate::profile::{FileType, Profile};
 
+#[allow(dead_code)]
 pub struct JavaScriptProfile;
 
 impl Profile for JavaScriptProfile {
@@ -24,6 +25,7 @@ impl Profile for JavaScriptProfile {
     }
 }
 
+#[allow(dead_code)]
 pub struct TypeScriptProfile;
 
 impl Profile for TypeScriptProfile {

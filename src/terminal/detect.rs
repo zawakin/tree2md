@@ -10,6 +10,7 @@ pub struct TerminalDetector {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TerminalMode {
     Tty,
+    #[allow(dead_code)]
     Plain,
 }
 
@@ -27,6 +28,7 @@ impl TerminalDetector {
     }
 
     /// Force a specific terminal mode (for testing or user override)
+    #[allow(dead_code)]
     pub fn with_mode(mut self, mode: TerminalMode) -> Self {
         self.force_mode = Some(mode);
         self
@@ -43,6 +45,7 @@ impl TerminalDetector {
     }
 
     /// Check if we're in a CI environment
+    #[allow(dead_code)]
     pub fn is_ci_environment(&self) -> bool {
         self.is_ci
     }
@@ -61,6 +64,7 @@ impl TerminalDetector {
     }
 
     /// Get the recommended output mode based on detection
+    #[allow(dead_code)]
     pub fn output_mode(&self) -> TerminalMode {
         if self.is_tty() {
             TerminalMode::Tty
@@ -70,6 +74,7 @@ impl TerminalDetector {
     }
 
     /// Check if colors/animations should be enabled
+    #[allow(dead_code)]
     pub fn should_use_colors(&self) -> bool {
         if !self.is_tty() {
             return false;

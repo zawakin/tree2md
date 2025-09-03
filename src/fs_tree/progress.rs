@@ -11,6 +11,7 @@ struct ProgressState {
     processed_files: usize,
     total_dirs: usize,
     processed_dirs: usize,
+    #[allow(dead_code)]
     current_path: Option<String>,
 }
 
@@ -28,6 +29,7 @@ impl ProgressTracker {
     }
 
     /// Estimate total items (called after initial walk)
+    #[allow(dead_code)]
     pub fn set_estimated_total(&self, files: usize, dirs: usize) {
         if let Ok(mut state) = self.inner.lock() {
             state.total_files = files;
@@ -36,6 +38,7 @@ impl ProgressTracker {
     }
 
     /// Mark a file as processed
+    #[allow(dead_code)]
     pub fn process_file(&self, path: &str) {
         if let Ok(mut state) = self.inner.lock() {
             state.processed_files += 1;
@@ -44,6 +47,7 @@ impl ProgressTracker {
     }
 
     /// Mark a directory as processed
+    #[allow(dead_code)]
     pub fn process_dir(&self, path: &str) {
         if let Ok(mut state) = self.inner.lock() {
             state.processed_dirs += 1;
@@ -68,6 +72,7 @@ impl ProgressTracker {
     }
 
     /// Get current processing path
+    #[allow(dead_code)]
     pub fn get_current_path(&self) -> Option<String> {
         if let Ok(state) = self.inner.lock() {
             state.current_path.clone()
@@ -77,6 +82,7 @@ impl ProgressTracker {
     }
 
     /// Get detailed stats
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> (usize, usize, usize, usize) {
         if let Ok(state) = self.inner.lock() {
             (

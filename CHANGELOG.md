@@ -6,6 +6,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2025-09-03
+### Added
+- **Major Architecture Overhaul**: Complete refactoring with modular architecture
+- **Multiple Output Formats**: 
+  - HTML tree visualization with interactive features
+  - Terminal output with progress animations and colors
+  - Enhanced Markdown rendering with multiple styles
+- **New Modules**:
+  - `injection`: Smart README injection and content updating
+  - `stamp`: Provenance tracking with version, date, and commit info
+  - `profile`: Language-specific file type detection with emoji support
+  - `output`: Statistics, link generation, and HTML tree creation
+  - `render`: Flexible rendering pipeline for multiple output formats
+  - `terminal`: Advanced terminal detection and animation capabilities
+  - `safety`: Preset configurations and content validation
+- **Enhanced CLI Options**:
+  - New presets for common use cases (e.g., `--preset rust`, `--preset python`)
+  - `--stamp` option for adding metadata (version/date/commit)
+  - `--output-format` for choosing between markdown, html, and terminal
+  - `--emoji` support for file type indicators
+  - `--stats` for displaying file statistics
+  - `--links` for generating file links
+- **Comprehensive Test Suite**: 
+  - Complete test overhaul with modular integration tests
+  - Added tests for emoji, filtering, HTML output, links, presets, safety, and more
+  - Improved test fixtures and helper utilities
+
+### Changed
+- **Refactored Core Modules**: 
+  - Restructured `fs_tree` module with better separation of concerns
+  - Improved `matcher` engine with enhanced performance
+  - Modularized content reading and I/O operations
+- **Enhanced Performance**:
+  - Progress tracking for large directory traversals
+  - Optimized file reading with better memory management
+  - Improved glob pattern matching efficiency
+- **Better Error Handling**: More informative error messages and validation
+
+### Fixed
+- Improved path handling and normalization
+- Enhanced glob pattern matching accuracy
+- Better handling of edge cases in file traversal
+
+### Developer Experience
+- Added `scripts/update-readme-embeds.sh` for README maintenance
+- Improved code organization and modularity
+- Better separation of concerns across modules
+- Enhanced documentation and code comments
+
 ## [0.7.0] - 2025-08-29
 ### Changed
 - **BREAKING**: Changed default behavior for hidden files

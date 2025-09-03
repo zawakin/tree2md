@@ -3,6 +3,7 @@ use crate::terminal::detect::{TerminalDetector, TerminalMode};
 /// Terminal capabilities and features
 pub struct TerminalCapabilities {
     detector: TerminalDetector,
+    #[allow(dead_code)]
     width: Option<usize>,
 }
 
@@ -14,22 +15,26 @@ impl TerminalCapabilities {
         Self { detector, width }
     }
 
+    #[allow(dead_code)]
     pub fn with_detector(detector: TerminalDetector) -> Self {
         let width = Self::detect_width();
         Self { detector, width }
     }
 
     /// Get terminal width
+    #[allow(dead_code)]
     pub fn width(&self) -> usize {
         self.width.unwrap_or(80)
     }
 
     /// Check if we should display animations
+    #[allow(dead_code)]
     pub fn supports_animation(&self) -> bool {
         self.detector.is_tty() && !Self::is_fun_disabled()
     }
 
     /// Check if fun mode is disabled
+    #[allow(dead_code)]
     fn is_fun_disabled() -> bool {
         if let Ok(val) = std::env::var("NO_FUN") {
             !val.is_empty() && val != "0"
@@ -39,11 +44,13 @@ impl TerminalCapabilities {
     }
 
     /// Check if we should use emoji
+    #[allow(dead_code)]
     pub fn supports_emoji(&self) -> bool {
         self.detector.is_tty() && self.detector.supports_unicode()
     }
 
     /// Check if we should use colors
+    #[allow(dead_code)]
     pub fn supports_colors(&self) -> bool {
         self.detector.should_use_colors()
     }
@@ -63,6 +70,7 @@ impl TerminalCapabilities {
     }
 
     /// Get the progress bar characters based on capabilities
+    #[allow(dead_code)]
     pub fn progress_chars(&self) -> ProgressChars {
         if self.detector.supports_unicode() {
             ProgressChars::unicode()
@@ -84,6 +92,7 @@ impl TerminalCapabilities {
     }
 
     /// Get the output mode
+    #[allow(dead_code)]
     pub fn output_mode(&self) -> TerminalMode {
         self.detector.output_mode()
     }
@@ -126,6 +135,7 @@ impl TreeChars {
 
 /// Progress bar characters
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ProgressChars {
     pub filled: &'static str,
     pub empty: &'static str,

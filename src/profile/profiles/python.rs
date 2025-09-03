@@ -1,5 +1,6 @@
 use crate::profile::{FileType, Profile};
 
+#[allow(dead_code)]
 pub struct PythonProfile;
 
 impl Profile for PythonProfile {
