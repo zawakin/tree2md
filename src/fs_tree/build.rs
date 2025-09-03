@@ -16,7 +16,7 @@ pub fn build_tree(
     display_root: &Path,
 ) -> io::Result<Node> {
     // Create MatchSpec from CLI arguments
-    let spec = MatchSpec::from_args(args);
+    let spec = MatchSpec::from_args(args, Path::new(path));
     build_tree_with_spec(path, args, &spec, root_path, display_root)
 }
 
@@ -40,13 +40,7 @@ pub fn build_tree_with_spec(
         .canonicalize()
         .unwrap_or_else(|_| path_buf.to_path_buf());
 
-    let display_path = calculate_display_path(
-        &resolved_path,
-        &args.display_path,
-        display_root,
-        None,
-        &args.strip_prefix,
-    );
+    let display_path = calculate_display_path(&resolved_path, display_root);
 
     let mut root_node =
         Node::new(name, resolved_path.clone(), metadata.is_dir()).with_display_path(display_path);
@@ -58,13 +52,14 @@ pub fn build_tree_with_spec(
         // Use WalkBuilder for recursive directory traversal
         let mut walker = WalkBuilder::new(path);
         walker
-            .hidden(args.exclude_hidden)
+            .hidden(false) // Don't exclude hidden files by default (will be handled by patterns)
             .git_ignore(false) // We handle gitignore in MatcherEngine
             .git_global(false)
             .git_exclude(false)
             .parents(false)
             .ignore(false)
-            .max_depth(None);
+            .follow_links(false) // Skip symlinks as per spec
+            .max_depth(args.level); // Use level directly
 
         // Build a map of paths to nodes for efficient tree construction
         let mut nodes_map: HashMap<PathBuf, Node> = HashMap::new();
@@ -83,10 +78,39 @@ pub fn build_tree_with_spec(
                 continue;
             }
 
+            // Skip symlinks entirely (per spec: "Symlinks are always skipped")
+            if entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false) {
+                continue;
+            }
+
             // Skip if path cannot be converted to string (non-UTF8 paths)
             if entry_path.to_str().is_none() {
                 eprintln!("Warning: Skipping non-UTF8 path: {:?}", entry_path);
                 continue;
+            }
+
+            // Check depth limit manually
+            if let Some(max_level) = args.level {
+                let depth = entry_path
+                    .strip_prefix(path_buf)
+                    .ok()
+                    .map(|p| p.components().count())
+                    .unwrap_or(0);
+
+                // For directories, we check if they're at the limit
+                // For files, we allow them if their parent directory is within the limit
+                if entry.file_type().is_some_and(|ft| ft.is_dir()) {
+                    if depth >= max_level {
+                        // Prune this directory - don't descend into it
+                        pruned_dirs.insert(entry_path.to_path_buf());
+                        continue;
+                    }
+                } else {
+                    // Files can be at max_level depth
+                    if depth > max_level {
+                        continue;
+                    }
+                }
             }
 
             // Check if this path is under a pruned directory
@@ -140,13 +164,7 @@ pub fn build_tree_with_spec(
                 .canonicalize()
                 .unwrap_or_else(|_| entry_path.to_path_buf());
 
-            let entry_display_path = calculate_display_path(
-                &resolved_entry_path,
-                &args.display_path,
-                display_root,
-                None,
-                &args.strip_prefix,
-            );
+            let entry_display_path = calculate_display_path(&resolved_entry_path, display_root);
 
             let node = Node::new(entry_name, resolved_entry_path, entry_metadata.is_dir())
                 .with_display_path(entry_display_path);
@@ -345,73 +363,5 @@ mod tests {
 
         let module = src.children.iter().find(|n| n.name == "module").unwrap();
         assert!(module.children.iter().any(|n| n.name == "lib.rs"));
-    }
-}
-
-pub fn insert_path_into_tree(
-    root: &mut Node,
-    path: &Path,
-    common_ancestor: &Option<PathBuf>,
-    args: &Args,
-    display_root: &Path,
-    original_input: Option<String>,
-) {
-    let components: Vec<_> = if let Some(ref ancestor) = common_ancestor {
-        path.strip_prefix(ancestor)
-            .unwrap_or(path)
-            .components()
-            .collect()
-    } else {
-        path.components().collect()
-    };
-
-    let mut current_children = &mut root.children;
-
-    for (i, component) in components.iter().enumerate() {
-        let name = component.as_os_str().to_string_lossy().to_string();
-        let is_last = i == components.len() - 1;
-
-        // Check if child already exists
-        let child_pos = current_children
-            .iter()
-            .position(|child| child.name == *name);
-
-        if let Some(pos) = child_pos {
-            if !is_last {
-                // Navigate deeper
-                current_children = &mut current_children[pos].children;
-            }
-        } else {
-            // Create new node
-            let node_path = if is_last {
-                path.to_path_buf()
-            } else {
-                PathBuf::new()
-            };
-
-            let display_path = if is_last && !node_path.as_os_str().is_empty() {
-                calculate_display_path(
-                    &node_path,
-                    &args.display_path,
-                    display_root,
-                    original_input.as_deref(),
-                    &args.strip_prefix,
-                )
-            } else {
-                PathBuf::from(&name)
-            };
-
-            let new_node = Node::new(name.clone(), node_path, !is_last)
-                .with_display_path(display_path)
-                .with_original_input(original_input.clone());
-
-            current_children.push(new_node);
-
-            if !is_last {
-                // Navigate to the newly created node's children
-                let new_pos = current_children.len() - 1;
-                current_children = &mut current_children[new_pos].children;
-            }
-        }
     }
 }

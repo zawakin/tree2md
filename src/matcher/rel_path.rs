@@ -36,7 +36,7 @@ impl RelPath {
     }
 
     /// Create a RelPath directly from a relative path
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in tests
     pub fn from_relative<P: AsRef<Path>>(path: P) -> Self {
         Self {
             inner: path.as_ref().as_os_str().to_owned(),
@@ -57,19 +57,13 @@ impl RelPath {
         }
     }
 
-    /// Get the underlying OsStr
-    #[allow(dead_code)]
-    pub fn as_os_str(&self) -> &OsStr {
-        &self.inner
-    }
-
     /// Convert to a PathBuf
     pub fn to_path_buf(&self) -> PathBuf {
         PathBuf::from(&self.inner)
     }
 
     /// Check if this path represents a directory based on trailing separator
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in tests
     pub fn looks_like_dir(&self) -> bool {
         let s = self.inner.to_string_lossy();
         s.ends_with('/') || s.ends_with('\\')

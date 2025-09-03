@@ -1,4 +1,5 @@
 use super::{MatchSpec, RelPath};
+use crate::safety::SafetyPreset;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::collections::HashSet;
@@ -21,6 +22,9 @@ pub struct MatcherEngine {
     /// Compiled extension set for fast lookups
     include_ext_set: HashSet<String>,
 
+    /// Original include glob patterns (for directory checking)
+    include_glob: Vec<String>,
+
     /// Compiled include glob patterns
     include_globset: Option<GlobSet>,
 
@@ -29,6 +33,9 @@ pub struct MatcherEngine {
 
     /// Gitignore rules if enabled
     gitignore: Option<Gitignore>,
+
+    /// Safety preset for excluding sensitive files
+    safety_preset: Option<SafetyPreset>,
 
     /// Whether we have any include rules
     has_includes: bool,
@@ -134,11 +141,20 @@ impl MatcherEngine {
             None
         };
 
+        // Create safety preset if enabled
+        let safety_preset = if spec.use_safety_preset {
+            Some(SafetyPreset::new())
+        } else {
+            None
+        };
+
         Ok(Self {
             include_ext_set,
+            include_glob: spec.include_glob.clone(),
             include_globset,
             exclude_globset,
             gitignore,
+            safety_preset,
             has_includes: spec.has_includes(),
             case_sensitive: spec.case_sensitive,
         })
@@ -148,28 +164,39 @@ impl MatcherEngine {
     pub fn select_file(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
 
-        // Hidden files are already filtered by WalkBuilder
+        // Precedence: include > exclude > gitignore > safe
 
-        // Priority 1: Check include rules (if any)
-        if self.has_includes {
-            let included = self.matches_include_rules(&path_str, rel_path);
-            if included {
-                // Even if included, check if it should be excluded
-                if self.matches_exclude_rules(&path_str, rel_path) {
-                    return Selection::Exclude;
-                }
-                return Selection::Include;
-            }
-            // If we have include rules but file doesn't match, exclude it
-            return Selection::Exclude;
+        // Priority 1: Include patterns (highest priority)
+        if self.matches_include_rules(&path_str, rel_path) {
+            return Selection::Include;
         }
 
-        // Priority 2: Check exclude rules
+        // Priority 2: Exclude patterns
         if self.matches_exclude_rules(&path_str, rel_path) {
             return Selection::Exclude;
         }
 
-        // Default: include if no rules or only exclude rules
+        // Priority 3: Gitignore rules
+        if let Some(ref gitignore) = self.gitignore {
+            let path_buf = rel_path.to_path_buf();
+            if gitignore.matched(&path_buf, false).is_ignore() {
+                return Selection::Exclude;
+            }
+        }
+
+        // Priority 4: Safety preset (lowest priority)
+        if let Some(ref safety) = self.safety_preset {
+            if safety.matches(path_str.as_ref()) {
+                return Selection::Exclude;
+            }
+        }
+
+        // If we have include patterns but file didn't match, exclude it
+        if self.has_includes {
+            return Selection::Exclude;
+        }
+
+        // Default: include if no rules match
         Selection::Include
     }
 
@@ -182,9 +209,27 @@ impl MatcherEngine {
             return Selection::PruneDir;
         }
 
-        // Hidden directories are already filtered by WalkBuilder
+        // Same precedence as files: include > exclude > gitignore > safe
 
-        // Check gitignore for directories
+        // Priority 1: Include patterns can override everything
+        // Check both if the directory itself matches OR if it may contain matching files
+        if self.matches_include_rules(&path_str, rel_path)
+            || self.dir_may_contain_includes(&path_str)
+        {
+            return Selection::Include;
+        }
+
+        // Priority 2: Exclude patterns
+        if let Some(ref exclude_globset) = self.exclude_globset {
+            // For directory matching, try both with and without trailing slash
+            if exclude_globset.is_match(path_str.as_ref())
+                || exclude_globset.is_match(format!("{}/", path_str))
+            {
+                return Selection::PruneDir;
+            }
+        }
+
+        // Priority 3: Gitignore for directories
         if let Some(ref gitignore) = self.gitignore {
             let path_buf = rel_path.to_path_buf();
             if gitignore.matched(&path_buf, true).is_ignore() {
@@ -192,12 +237,9 @@ impl MatcherEngine {
             }
         }
 
-        // Check exclude globs for directories
-        if let Some(ref exclude_globset) = self.exclude_globset {
-            // For directory matching, try both with and without trailing slash
-            if exclude_globset.is_match(path_str.as_ref())
-                || exclude_globset.is_match(format!("{}/", path_str))
-            {
+        // Priority 4: Safety preset for directories
+        if let Some(ref safety) = self.safety_preset {
+            if safety.matches(path_str.as_ref()) || safety.matches(&format!("{}/", path_str)) {
                 return Selection::PruneDir;
             }
         }
@@ -232,6 +274,30 @@ impl MatcherEngine {
             }
         }
 
+        false
+    }
+
+    /// Check if a directory potentially contains files that match include rules
+    fn dir_may_contain_includes(&self, path_str: &str) -> bool {
+        if let Some(ref include_globset) = self.include_globset {
+            // Check if any include pattern would match files inside this directory
+            // For example, if include pattern is ".ssh/**", it matches files in .ssh/
+            let with_wildcard = format!("{}/**", path_str);
+
+            // Check if the pattern matches the directory itself or content within it
+            for pattern in &self.include_glob {
+                // If pattern is exactly "dir/**" and we are "dir", we match
+                if pattern == &with_wildcard || pattern == &format!("**/{}", with_wildcard) {
+                    return true;
+                }
+                // Also check with globset if any file inside would match
+                // Test with a hypothetical file inside the directory
+                let test_file = format!("{}/test", path_str);
+                if include_globset.is_match(&test_file) {
+                    return true;
+                }
+            }
+        }
         false
     }
 
@@ -323,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_precedence() {
-        // Include rules take precedence, but excludes can override
+        // Include rules take precedence over exclude rules
         let spec = MatchSpec::new()
             .with_include_glob(vec!["**/*.rs".to_string()])
             .with_exclude_glob(vec!["**/test/**".to_string()]);
@@ -334,8 +400,10 @@ mod tests {
         let src_rs = RelPath::from_relative("src/main.rs");
         assert_eq!(engine.select_file(&src_rs), Selection::Include);
 
+        // Even though test_main.rs is in the exclude pattern **/test/**,
+        // it matches the include pattern **/*.rs, and include takes precedence
         let test_rs = RelPath::from_relative("test/test_main.rs");
-        assert_eq!(engine.select_file(&test_rs), Selection::Exclude);
+        assert_eq!(engine.select_file(&test_rs), Selection::Include);
     }
 
     #[test]

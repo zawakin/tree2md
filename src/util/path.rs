@@ -1,43 +1,15 @@
-use crate::cli::DisplayPathMode;
 use std::path::{Path, PathBuf};
 
-/// Calculate display path based on mode and display root
-pub fn calculate_display_path(
-    resolved_path: &Path,
-    display_mode: &DisplayPathMode,
-    display_root: &Path,
-    original_input: Option<&str>,
-    strip_prefixes: &[String],
-) -> PathBuf {
-    let mut display_path = match display_mode {
-        DisplayPathMode::Absolute => resolved_path.to_path_buf(),
-        DisplayPathMode::Relative => pathdiff::diff_paths(resolved_path, display_root)
-            .unwrap_or_else(|| resolved_path.to_path_buf()),
-        DisplayPathMode::Input => {
-            if let Some(input) = original_input {
-                // Normalize the input path (remove redundant ./ and // etc)
-                PathBuf::from(normalize_path_string(input))
-            } else {
-                // Fallback to relative if no original input
-                pathdiff::diff_paths(resolved_path, display_root)
-                    .unwrap_or_else(|| resolved_path.to_path_buf())
-            }
-        }
-    };
-
-    // Apply strip prefixes
-    for prefix in strip_prefixes {
-        if let Ok(stripped) = display_path.strip_prefix(prefix) {
-            display_path = stripped.to_path_buf();
-            break; // Only strip the first matching prefix
-        }
-    }
-
-    display_path
+/// Calculate display path relative to the display root
+/// This is simplified from the old version since we no longer support multiple display modes
+pub fn calculate_display_path(resolved_path: &Path, display_root: &Path) -> PathBuf {
+    // Always use relative paths from display root
+    pathdiff::diff_paths(resolved_path, display_root).unwrap_or_else(|| resolved_path.to_path_buf())
 }
 
 /// Normalize a path string (remove ./, //, etc)
-fn normalize_path_string(path: &str) -> String {
+#[cfg(test)]
+pub fn normalize_path_string(path: &str) -> String {
     // Handle root path special case
     if path == "/" {
         return "/".to_string();
@@ -116,31 +88,7 @@ mod tests {
         let resolved = PathBuf::from("/home/user/project/src/main.rs");
         let display_root = PathBuf::from("/home/user/project");
 
-        let result = calculate_display_path(
-            &resolved,
-            &DisplayPathMode::Relative,
-            &display_root,
-            None,
-            &[],
-        );
-        assert_eq!(result, PathBuf::from("src/main.rs"));
-
-        let result = calculate_display_path(
-            &resolved,
-            &DisplayPathMode::Absolute,
-            &display_root,
-            None,
-            &[],
-        );
-        assert_eq!(result, PathBuf::from("/home/user/project/src/main.rs"));
-
-        let result = calculate_display_path(
-            &resolved,
-            &DisplayPathMode::Input,
-            &display_root,
-            Some("./src/main.rs"),
-            &[],
-        );
+        let result = calculate_display_path(&resolved, &display_root);
         assert_eq!(result, PathBuf::from("src/main.rs"));
     }
 }

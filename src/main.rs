@@ -1,177 +1,100 @@
 mod cli;
 mod content;
 mod fs_tree;
-mod input;
+mod injection;
 mod language;
 mod matcher;
+mod output;
+mod profile;
+mod render;
+mod safety;
+mod stamp;
+mod terminal;
 mod util;
 
 use clap::Parser;
 use cli::Args;
-use fs_tree::{
-    build_tree, insert_path_into_tree, print_code_blocks, print_flat_structure,
-    print_tree_with_options, Node,
-};
-use input::{find_common_ancestor, process_stdin_input, StdinConfig, StdinError, StdinResult};
+use fs_tree::{build_tree, print_code_blocks, ProgressTracker};
+use injection::readme::ReadmeInjector;
+use stamp::provenance::StampGenerator;
 use std::io;
 use std::path::{Path, PathBuf};
+use terminal::animation::AnimationRunner;
+use terminal::capabilities::TerminalCapabilities;
+use terminal::detect::TerminalDetector;
 
 fn main() -> io::Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
 
-    // Handle stdin mode
-    if args.stdin {
-        return handle_stdin_mode(&args);
+    // Apply preset configurations
+    args.apply_preset();
+
+    // Validate arguments and check for deprecated usage
+    if let Err(e) = args.validate() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
     }
+    args.check_deprecated();
 
     // Determine display root
-    let display_root = Path::new(&args.directory)
+    let display_root = Path::new(&args.target)
         .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(&args.directory));
+        .unwrap_or_else(|_| PathBuf::from(&args.target));
 
     // Get the root path for pattern matching
-    let root_path = Path::new(&args.directory)
+    let root_path = Path::new(&args.target)
         .canonicalize()
-        .unwrap_or_else(|_| Path::new(&args.directory).to_path_buf());
+        .unwrap_or_else(|_| Path::new(&args.target).to_path_buf());
 
-    // Create args with effective gitignore setting for directory scan
+    // Set up progress tracking and animation
+    let detector = TerminalDetector::new();
+    let is_tty = detector.is_tty();
+    let show_animation = args.is_fun_enabled(is_tty) && !args.no_anim && is_tty;
+
+    let progress_tracker = if show_animation {
+        Some(ProgressTracker::new())
+    } else {
+        None
+    };
+
+    let mut animation_runner = AnimationRunner::new(show_animation, progress_tracker.clone());
+
     // Build tree using unified WalkBuilder approach
-    let root_node = build_tree(&args.directory, &args, &root_path, &display_root)?;
+    let root_node = build_tree(&args.target, &args, &root_path, &display_root)?;
 
-    // Print structure based on format preference
-    println!("## File Structure");
+    // Stop animation once tree is built
+    animation_runner.complete();
 
-    if args.flat {
-        // Collect all file paths for flat output
-        let mut all_paths = Vec::new();
-        collect_paths_from_node(&root_node, &mut all_paths);
-        all_paths.sort();
+    // Create terminal capabilities and renderer
+    let capabilities = TerminalCapabilities::new();
+    let mut renderer = render::create_renderer(&args, &capabilities);
+    let mut output = renderer.render_tree(&root_node);
 
-        // Print in flat format
-        print_flat_structure(
-            &all_paths,
-            &args,
-            &display_root,
-            &std::collections::HashMap::new(),
-        );
+    // Add stamp if requested
+    let stamp_gen = StampGenerator::new(&args);
+    if let Some(stamp) = stamp_gen.generate(&root_path) {
+        output.push_str("\n\n---\n\n");
+        output.push_str(&stamp);
+        output.push('\n');
+    }
 
-        // Print code blocks if requested
-        if args.contents {
-            print_code_blocks(&root_node, &args);
-        }
+    // Handle injection into README
+    if let Some(ref inject_path) = args.inject {
+        let injector =
+            ReadmeInjector::new(output.clone(), args.tag_start.clone(), args.tag_end.clone());
+        injector.inject(Path::new(inject_path))?;
+        eprintln!("Successfully injected tree into {}", inject_path);
     } else {
-        // Print tree structure
-        // Show root only if --root-label is specified
-        let show_root = args.root_label.is_some();
-        print_tree_with_options(&root_node, "", &args, show_root);
+        // Print to stdout if not injecting
+        print!("{}", output);
+    }
 
-        // Print code blocks if requested
-        if args.contents {
-            print_code_blocks(&root_node, &args);
-        }
+    // Print code blocks if requested (deprecated)
+    if args.contents {
+        print_code_blocks(&root_node, &args);
     }
 
     Ok(())
-}
-
-fn handle_stdin_mode(args: &Args) -> io::Result<()> {
-    // Use the positional directory argument as base for resolving relative paths from stdin
-    let base_dir = Path::new(&args.directory)
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from(&args.directory));
-
-    let stdin_config = StdinConfig {
-        base_dir,
-        restrict_root: args.restrict_root.as_ref().map(PathBuf::from),
-        expand_dirs: args.expand_dirs,
-        // When expanding dirs, respect gitignore by default (unless --no-gitignore)
-        respect_gitignore: if args.expand_dirs {
-            !args.no_gitignore
-        } else {
-            false // Not expanding, so this field doesn't matter
-        },
-        exclude_hidden: args.exclude_hidden,
-    };
-
-    // Process stdin input and get both canonical paths and original inputs
-    let StdinResult {
-        canonical_paths: file_paths,
-        original_map: original_inputs,
-    } = match process_stdin_input(&stdin_config) {
-        Ok(result) => result,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            match e {
-                StdinError::RestrictRootViolation(_, _) => std::process::exit(2),
-                StdinError::DirectoriesNotAllowed(_) => std::process::exit(3),
-                StdinError::NoValidFiles => std::process::exit(4),
-                _ => std::process::exit(1),
-            }
-        }
-    };
-
-    // Always use authoritative mode (stdin only) and preserve input order
-    let all_paths = file_paths;
-
-    // Use current directory as display root for stdin mode
-    let display_root = std::env::current_dir()?;
-
-    // Extension filtering is already handled during stdin processing/expansion
-
-    // Generate output
-    if args.flat {
-        print_flat_structure(&all_paths, args, &display_root, &original_inputs);
-    } else {
-        // Build tree from paths
-        let common_ancestor = find_common_ancestor(&all_paths);
-        let mut root = Node {
-            name: common_ancestor
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .unwrap_or_else(|| std::ffi::OsStr::new("."))
-                .to_string_lossy()
-                .to_string(),
-            path: common_ancestor
-                .clone()
-                .unwrap_or_else(|| PathBuf::from(".")),
-            display_path: PathBuf::from("."),
-            is_dir: true,
-            children: Vec::new(),
-            original_input: None,
-        };
-
-        for path in &all_paths {
-            let original_input = original_inputs.get(path).cloned();
-            insert_path_into_tree(
-                &mut root,
-                path,
-                &common_ancestor,
-                args,
-                &display_root,
-                original_input,
-            );
-        }
-
-        println!("## File Structure");
-        // Show root only if --root-label is specified
-        let show_root = args.root_label.is_some();
-        print_tree_with_options(&root, "", args, show_root);
-
-        if args.contents {
-            print_code_blocks(&root, args);
-        }
-    }
-
-    Ok(())
-}
-
-fn collect_paths_from_node(node: &Node, paths: &mut Vec<PathBuf>) {
-    if !node.is_dir && !node.path.as_os_str().is_empty() {
-        paths.push(node.path.clone());
-    }
-    for child in &node.children {
-        collect_paths_from_node(child, paths);
-    }
 }
 
 #[cfg(test)]
