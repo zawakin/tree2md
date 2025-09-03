@@ -94,21 +94,15 @@ fn test_level_depth_limiting() {
     let (output, stderr, success) = run_tree2md([p(&root), "-L".into(), "3".into()]);
     assert!(success);
 
-    // Debug output
-    if !output.contains("level2.txt") {
-        eprintln!("Output:\n{}", output);
-        eprintln!("Stderr:\n{}", stderr);
-    }
-
-    // Should include up to level 3 (depth 2 from root)
+    // Should include everything up to and including depth 3
     assert!(output.contains("level0.txt"));
     assert!(output.contains("dir1"));
     assert!(output.contains("level1.txt"));
     assert!(output.contains("dir2"));
     assert!(output.contains("level2.txt"));
+    assert!(output.contains("dir3")); // dir3 is at depth 3 and should be visible
 
-    // Should NOT include level 4 (depth 3 from root)
-    assert!(!output.contains("dir3"));
+    // Should NOT include anything at depth 4
     assert!(!output.contains("level3.txt"));
 }
 

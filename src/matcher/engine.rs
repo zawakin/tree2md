@@ -164,39 +164,38 @@ impl MatcherEngine {
     pub fn select_file(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
 
-        // Precedence: include > exclude > gitignore > safe
-
-        // Priority 1: Include patterns (highest priority)
+        // Priority 1: Include patterns (--include)
         if self.matches_include_rules(&path_str, rel_path) {
             return Selection::Include;
         }
 
-        // Priority 2: Exclude patterns
-        if self.matches_exclude_rules(&path_str, rel_path) {
-            return Selection::Exclude;
-        }
-
-        // Priority 3: Gitignore rules
-        if let Some(ref gitignore) = self.gitignore {
-            let path_buf = rel_path.to_path_buf();
-            if gitignore.matched(&path_buf, false).is_ignore() {
+        // Priority 2: Exclude glob patterns (--exclude)
+        if let Some(ref exclude_globset) = self.exclude_globset {
+            if exclude_globset.is_match(path_str.as_ref()) {
                 return Selection::Exclude;
             }
         }
 
-        // Priority 4: Safety preset (lowest priority)
+        // Priority 3: Gitignore rules
+        if let Some(ref gitignore) = self.gitignore {
+            if gitignore.matched(&rel_path.to_path_buf(), false).is_ignore() {
+                return Selection::Exclude;
+            }
+        }
+
+        // Priority 4: Safety preset
         if let Some(ref safety) = self.safety_preset {
             if safety.matches(path_str.as_ref()) {
                 return Selection::Exclude;
             }
         }
 
-        // If we have include patterns but file didn't match, exclude it
+        // If include patterns were used and nothing matched, exclude the file.
         if self.has_includes {
             return Selection::Exclude;
         }
 
-        // Default: include if no rules match
+        // Default: include if no rules matched
         Selection::Include
     }
 
@@ -301,25 +300,6 @@ impl MatcherEngine {
         false
     }
 
-    /// Check if a path matches any exclude rules
-    fn matches_exclude_rules(&self, path_str: &str, rel_path: &RelPath) -> bool {
-        // Check gitignore
-        if let Some(ref gitignore) = self.gitignore {
-            let path_buf = rel_path.to_path_buf();
-            if gitignore.matched(&path_buf, false).is_ignore() {
-                return true;
-            }
-        }
-
-        // Check exclude globs
-        if let Some(ref exclude_globset) = self.exclude_globset {
-            if exclude_globset.is_match(path_str) {
-                return true;
-            }
-        }
-
-        false
-    }
 }
 
 #[cfg(test)]

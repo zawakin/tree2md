@@ -89,29 +89,6 @@ pub fn build_tree_with_spec(
                 continue;
             }
 
-            // Check depth limit manually
-            if let Some(max_level) = args.level {
-                let depth = entry_path
-                    .strip_prefix(path_buf)
-                    .ok()
-                    .map(|p| p.components().count())
-                    .unwrap_or(0);
-
-                // For directories, we check if they're at the limit
-                // For files, we allow them if their parent directory is within the limit
-                if entry.file_type().is_some_and(|ft| ft.is_dir()) {
-                    if depth >= max_level {
-                        // Prune this directory - don't descend into it
-                        pruned_dirs.insert(entry_path.to_path_buf());
-                        continue;
-                    }
-                } else {
-                    // Files can be at max_level depth
-                    if depth > max_level {
-                        continue;
-                    }
-                }
-            }
 
             // Check if this path is under a pruned directory
             let is_under_pruned = pruned_dirs
