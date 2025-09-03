@@ -3,20 +3,27 @@
 [![Crates.io](https://img.shields.io/crates/v/tree2md.svg)](https://crates.io/crates/tree2md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Generate GitHub-ready project structure documentation with clickable links.**
+**📁 Generate beautiful tree structures in Markdown, HTML, or Terminal format**
 
-A safe, fast tool that creates beautiful Markdown tree visualizations of your project structure — perfect for README files, documentation, and GitHub repositories. No file contents are ever exposed, keeping your code secure.
+```bash
+tree2md                                                          # Pretty terminal tree with colors & bars
+tree2md --github https://github.com/you/repo --inject README.md  # Auto-update your docs with one command!
+```
+
+Transform your project structure into stunning visualizations — from colorful terminal trees with progress bars to GitHub-ready documentation with clickable links. Perfect for READMEs, architecture docs, and code reviews.
+
+![tree2md screenshot](docs/images/tree2md_screenshot.png)
 
 ---
 
 ## 🎯 Key Features
 
-* **📁 Collapsible Trees** — Navigate large projects easily with `<details>`
-* **🔗 GitHub Integration** — Automatic link rewriting for GitHub URLs
-* **🔒 Safe by Default** — Excludes secrets, `.env`, keys, `node_modules/`, etc.
-* **🎨 Smart Formatting** — Deterministic output (dirs first, alphabetical order)
-* **📊 Statistics** — File counts, top extensions, LOC counts
-* **📝 README Injection** — Auto-update README.md between tags (idempotent)
+* **🎨 Multiple Output Formats** — Markdown, HTML with collapsible folders, or Terminal tree
+* **🔗 GitHub Integration** — Automatic link rewriting for clickable GitHub navigation
+* **🔒 Safe by Default** — Auto-excludes `.env`, secrets, `node_modules/`, `.git/` and more
+* **📊 Rich Statistics** — File counts, extensions breakdown, lines of code with visual bars
+* **📝 README Injection** — Update README.md between tags automatically (idempotent)
+* **⚡ Smart Presets** — `--preset readme` for docs, `--preset fun` for emojis & animations
 
 ---
 
@@ -26,6 +33,9 @@ A safe, fast tool that creates beautiful Markdown tree visualizations of your pr
 
 ```bash
 cargo install tree2md
+
+# Your Git Repository
+tree2md
 ```
 
 ### From source
@@ -45,20 +55,21 @@ Download from [GitHub Releases](https://github.com/zawakin/tree2md/releases)
 ## 🚀 Quick Start
 
 ```bash
-# Generate a tree (pretty tty-style)
-tree2md
+# Beautiful terminal tree with progress bars and file sizes
+tree2md                          # Auto-detects terminal for colorful output!
+tree2md --preset fun             # With emojis and animations 🎉
 
-# Generate a Markdown tree (safe mode by default)
-tree2md . > STRUCTURE.md
+# Save as Markdown with full statistics
+tree2md --preset readme > STRUCTURE.md
 
-# Add GitHub links
-tree2md . --github https://github.com/you/repo/tree/main
+# Auto-inject into README with GitHub links
+tree2md --github https://github.com/you/repo/tree/main --inject README.md
 
-# Inject into README.md automatically
-tree2md . --github https://github.com/you/repo/tree/main --inject README.md
+# HTML output with collapsible folders
+tree2md --output html --fold auto > tree.html
 
-# Limit depth & filter
-tree2md . -L 3 -I "*.rs" -I "*.md"
+# Focus on specific files (e.g., only Rust files, max 3 levels)
+tree2md src/ -L 3 -I "*.rs" --stats full
 ```
 
 ---
@@ -205,7 +216,7 @@ cargo clippy -- -D warnings
 ### Markdown-Style
 
 ```bash
-tree2md -L 2 . --output md --inject README.md --tag-start '<tag-start>'
+tree2md -L 2 . --output md --inject README.md --tag-start '<tag-start>' --tag-end '<tag-end>'
 ```
 
 ````markdown
@@ -254,10 +265,10 @@ tree2md -L 2 . --output md --inject README.md --tag-start '<tag-start>'
 <!-- tree2md-md:end -->
 ````
 
-### Tree-Style
+### Tree(tty)-Style
 
 ```bash
-tree2md -L 2 . --output md --inject README.md --tag-start '<tag-start>'
+tree2md -L 2 . --output tty --inject README.md --tag-start '<tag-start>' --tag-end '<tag-end>'
 ```
 
 
