@@ -89,7 +89,6 @@ pub fn build_tree_with_spec(
                 continue;
             }
 
-
             // Check if this path is under a pruned directory
             let is_under_pruned = pruned_dirs
                 .iter()

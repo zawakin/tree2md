@@ -178,7 +178,10 @@ impl MatcherEngine {
 
         // Priority 3: Gitignore rules
         if let Some(ref gitignore) = self.gitignore {
-            if gitignore.matched(&rel_path.to_path_buf(), false).is_ignore() {
+            if gitignore
+                .matched(rel_path.to_path_buf(), false)
+                .is_ignore()
+            {
                 return Selection::Exclude;
             }
         }
@@ -299,7 +302,6 @@ impl MatcherEngine {
         }
         false
     }
-
 }
 
 #[cfg(test)]
