@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2025-09-03
+### Documentation
+- Enhanced README with improved above-the-fold section
+- Added compelling one-liner examples showcasing terminal and GitHub modes
+- Added screenshot for immediate visual context
+- Updated tagline to highlight multiple output formats
+- Improved key features to reflect actual capabilities
+- Reorganized Quick Start examples with terminal-first approach
+- Added CONTRIBUTING.md with comprehensive development guidelines
+
 ## [0.8.0] - 2025-09-03
 ### Added
 - **Major Architecture Overhaul**: Complete refactoring with modular architecture

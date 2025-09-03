@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-pub const VERSION: &str = "0.8.0";
+pub const VERSION: &str = "0.8.1";
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum UseGitignoreMode {
