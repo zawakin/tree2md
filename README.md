@@ -3,103 +3,24 @@
 [![Crates.io](https://img.shields.io/crates/v/tree2md.svg)](https://crates.io/crates/tree2md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Like the `tree` command, but outputs in Markdown.**
-Scans directories and prints a Markdown-formatted tree. Optionally embed file contents as syntax-highlighted code blocks.
+**Generate GitHub-ready project structure documentation with clickable links.**
 
-> [!NOTE]
-> This project is still in an early stage and changing rapidly 🚧  
-> Contributions are welcome, but responses may take time until things stabilize.  
-> Beginner-friendly issues will be added once the codebase is more settled.
+A safe, fast tool that creates beautiful Markdown tree visualizations of your project structure — perfect for README files, documentation, and GitHub repositories. No file contents are ever exposed, keeping your code secure.
 
 ---
 
-## Table of Contents
-- [tree2md](#tree2md)
-  - [Table of Contents](#table-of-contents)
-  - [Quick Start](#quick-start)
-  - [Why tree2md vs. `tree`](#why-tree2md-vs-tree)
-  - [Features](#features)
-  - [Installation](#installation)
-    - [From crates.io](#from-cratesio)
-    - [From source](#from-source)
-    - [Pre-built binaries](#pre-built-binaries)
-  - [Usage](#usage)
-    - [Common recipes](#common-recipes)
-      - [Git-friendly](#git-friendly)
-    - [All options (cheat sheet)](#all-options-cheat-sheet)
-  - [Stdin mode (precise control)](#stdin-mode-precise-control)
-  - [Display \& path controls](#display--path-controls)
-  - [Example output](#example-output)
-  - [Supported languages](#supported-languages)
-  - [Performance \& security](#performance--security)
-  - [Build from source](#build-from-source)
-  - [Contributing](#contributing)
-  - [License](#license)
+## 🎯 Key Features
+
+* **📁 Collapsible Trees** — Navigate large projects easily with `<details>`
+* **🔗 GitHub Integration** — Automatic link rewriting for GitHub URLs
+* **🔒 Safe by Default** — Excludes secrets, `.env`, keys, `node_modules/`, etc.
+* **🎨 Smart Formatting** — Deterministic output (dirs first, alphabetical order)
+* **📊 Statistics** — File counts, top extensions, LOC counts
+* **📝 README Injection** — Auto-update README.md between tags (idempotent)
 
 ---
 
-## Quick Start
-
-```bash
-# Install
-cargo install tree2md
-
-# Show directory tree (no file contents)
-tree2md src > PROJECT_STRUCTURE.md
-
-# Include file contents as code blocks
-tree2md src -c > PROJECT_STRUCTURE.md
-```
-
-Clipboard helpers:
-
-```bash
-# macOS
-tree2md src -c | pbcopy
-# Linux
-tree2md src -c | xclip -selection clipboard
-# Windows
-tree2md src -c | clip
-```
-
----
-
-## Why tree2md vs. `tree`
-
-| Capability                            | `tree` | `tree2md` |
-| ------------------------------------- | :----: | :-------: |
-| Output Markdown                       |   ✖︎   |     ✔     |
-| Embed file contents (code blocks)     |   ✖︎   |     ✔     |
-| Syntax highlighting hints             |   ✖︎   |     ✔     |
-| Respect `.gitignore`                  |   ◯\*  |     ✔     |
-| Filter by extension / glob            |    ◯   |     ✔     |
-| Drive via stdin (authoritative/merge) |    △   |     ✔     |
-| Flat output for file collections      |   ✖︎   |     ✔     |
-| Truncate by bytes / lines             |   ✖︎   |     ✔     |
-| Security boundary (`--restrict-root`) |   ✖︎   |     ✔     |
-| Fast, single-binary (Rust)            |    —   |     ✔     |
-
-\* depending on platform/flags; `tree2md` respects `.gitignore` by default.
-
----
-
-## Features
-
-* Markdown-formatted directory trees
-* Optional file contents as fenced code blocks (with language hints)
-* Extension filters and glob patterns
-* Honors `.gitignore` by default (use `--no-gitignore` to disable)
-* Truncate large files by **bytes** or **lines**
-* Hidden files/dirs shown by default (use `--exclude-hidden` to hide)
-* `.git/` directory is always excluded for safety and cleanliness
-* Read paths from **stdin** (newline or NUL-delimited)
-* **Flat** output for discrete file sets
-* Security guardrail with `--restrict-root`
-* Fast & efficient (Rust)
-
----
-
-## Installation
+## 📥 Installation
 
 ### From crates.io
 
@@ -110,206 +31,293 @@ cargo install tree2md
 ### From source
 
 ```bash
-git clone https://github.com/zawakin/tree2md.git
+git clone https://github.com/zawakin/tree2md
 cd tree2md
-cargo build --release
-# Binary at: ./target/release/tree2md
+cargo install --path .
 ```
 
 ### Pre-built binaries
 
-Download from the [releases page](https://github.com/zawakin/tree2md/releases).
-
-Available for:
-
-* Linux (x86\_64)
-* macOS (Apple Silicon)
-* Windows (x86\_64)
+Download from [GitHub Releases](https://github.com/zawakin/tree2md/releases)
 
 ---
 
-## Usage
-
-### Common recipes
+## 🚀 Quick Start
 
 ```bash
-# Quick overview without contents
-tree2md .
+# Generate a tree (pretty tty-style)
+tree2md
 
-# Generate README-style docs with contents
-tree2md src -c > PROJECT_STRUCTURE.md
+# Generate a Markdown tree (safe mode by default)
+tree2md . > STRUCTURE.md
 
-# Filter by extensions
-tree2md src -e .rs,.toml
+# Add GitHub links
+tree2md . --github https://github.com/you/repo/tree/main
 
-# Find with glob patterns (repeatable)
-tree2md -f "*.rs" -f "src/**/*.rs"
+# Inject into README.md automatically
+tree2md . --github https://github.com/you/repo/tree/main --inject README.md
 
-# Exclude hidden files (shown by default)
-tree2md --exclude-hidden
-
-# Truncate embedded contents (lines or bytes)
-tree2md -c --max-lines 80
-tree2md -c --truncate 2000
-
-# 7) Combine filters + contents + truncation
-tree2md -f "src/**/*.rs" -c --max-lines 100
-```
-
-#### Git-friendly
-
-```bash
-# Only Git-tracked TypeScript files
-git ls-files "*.ts" | tree2md --stdin -c
-
-# Recently changed files
-git diff --name-only HEAD~1 | tree2md --stdin
-```
-
-### All options (cheat sheet)
-
-**Basic**
-
-* `-c, --contents` — include file contents as code blocks
-* `-t, --truncate <N>` — truncate file content to first **N bytes**
-* `--max-lines <N>` — limit file content to first **N lines**
-* `-e, --include-ext <EXTS>` — comma-separated list (e.g. `.go,.py`)
-* `-f, --find <PATTERN>` — glob pattern (repeatable), e.g. `"src/**/*.rs"`
-* `--exclude-hidden` — exclude hidden files/dirs (dotfiles)
-* `--no-gitignore` — ignore `.gitignore` files and include all files
-* `-h, --help` / `-V, --version`
-
-**Note:** The `.git/` directory is always excluded regardless of flags.
-
-**Stdin mode**
-
-* `--stdin` — read newline-delimited paths from stdin
-* `--restrict-root <DIR>` — ensure all paths stay within this directory
-* `--expand-dirs` — expand directories received via stdin
-* `--flat` — render a flat list (no tree)
-
-**Display & paths**
-
-* `--display-path <relative|absolute|input>` — default: **relative**
-* `--strip-prefix <PREFIX>` — remove prefix from display paths (repeatable)
-* `--root-label <LABEL>` — custom label for the root (e.g. `"."`, `"PROJECT_ROOT"`)
-
----
-
-## Stdin mode (precise control)
-
-Use stdin when you already have an exact file list (CI pipelines, `git ls-files`, `ripgrep`, `find`).
-
-```bash
-# Only use files from stdin (no directory scanning)
-git ls-files "*.ts" | tree2md --stdin -c
-
-# Expand directories that appear in stdin
-printf '%s\n' src tests | tree2md --stdin --expand-dirs
-
-# Enforce a project boundary (security)
-rg -l "TODO" | tree2md --stdin --restrict-root "$(pwd)"
-```
-
-**Flat mode** is great for discrete file collections:
-
-```bash
-fzf -m | tree2md --stdin --flat -c
+# Limit depth & filter
+tree2md . -L 3 -I "*.rs" -I "*.md"
 ```
 
 ---
 
-## Display & path controls
+## 📋 Example Output
 
-```bash
-# Show absolute paths
-tree2md --display-path absolute .
+```markdown
+- src/
+  - [cli.rs](src/cli.rs) (452 lines)
+  - [main.rs](src/main.rs) (262 lines)
+- tests/
+  - [emoji_test.rs](tests/emoji_test.rs) (175 lines)
+  - [filtering_test.rs](tests/filtering_test.rs) (295 lines)
+  - [safety_test.rs](tests/safety_test.rs) (357 lines)
+- [Cargo.toml](Cargo.toml) (36 lines)
+- [LICENSE](LICENSE) (21 lines)
+- [README.md](README.md) (310 lines)
 
-# Strip a common prefix from printed paths
-find ~/projects/myapp -type f | tree2md --stdin --strip-prefix ~/projects
+**Totals**: 📂 2 dirs • 📄 8 files • 🧾 ~1.7K LOC
+
+**By type**:
+- Test: 3 (38%) ######---------
+- Rust: 2 (25%) ####-----------
+- Markdown: 1 (13%) ##-------------
+- TOML: 1 (13%) ##-------------
+- License: 1 (13%) ##-------------
 ```
 
 ---
 
-## Example output
+## 🛠️ CLI Options
+
+### Filtering
+
+* `-L, --level <N>` — Limit traversal depth
+* `-I, --include <GLOB>` — Include patterns (repeatable)
+* `-X, --exclude <GLOB>` — Exclude patterns (repeatable)
+* `--use-gitignore {auto|never|always}` — Respect `.gitignore`
+
+### Links & Output
+
+* `--links {on|off}` — Toggle Markdown links
+* `--github <URL>` — Rewrite links to GitHub
+* `--fold {auto|on|off}` — Collapsible folders
+* `--no-stats` — Hide stats footer
+
+### Safety
+
+* `--safe` (default) — Excludes sensitive files
+* `--unsafe` — Disable all safety filters
+* `--restrict-root <DIR>` — Prevent traversal outside root
+
+### README Integration
+
+* `--inject <FILE>` — Update README.md between tags
+* `--tag-start <STR>` — Custom start tag (default: `<\!-- tree2md:start -->`)
+* `--tag-end <STR>` — Custom end tag (default: `<\!-- tree2md:end -->`)
+* `--dry-run` — Preview without writing
+
+### Metadata
+
+* `--stamp {version|date|commit|none}` — Add generation metadata
+* `--stamp-date-format <FMT>` — Date format
+
+---
+
+## 🔒 Safety Defaults
+
+Excluded by default:
+
+* `.env`, `.ssh/**`, `*.pem`, `*.key`
+* `node_modules/`, `target/`, `dist/`, `build/`
+* `.git/**`, `.DS_Store`, `Thumbs.db`
+
+Use `-I` to selectively include, or `--unsafe` to disable filters.
+
+---
+
+## 📝 Common Use Cases
+
+**README injection**
+
+```bash
+tree2md . --github https://github.com/you/repo/tree/main --inject README.md
+```
+
+**Docs / Architecture**
+
+```bash
+tree2md src --fold on > docs/ARCHITECTURE.md
+```
+
+**Code reviews**
+
+```bash
+tree2md . -L 3 -I "*.rs" -I "*.toml" --no-stats
+```
+
+**CI/CD auto-update**
+
+```bash
+tree2md . --github $GITHUB_URL --inject README.md --stamp version
+git add README.md
+git commit -m "Update structure"
+```
+
+---
+
+## ⚡ Performance
+
+* **Fast** — Parallel traversal with efficient filtering
+* **Memory safe** — Streams output, no huge buffers
+* **Deterministic** — Always the same result for same input
+* **Git-aware** — Respects `.gitignore`
+
+---
+
+## 🏗️ Build from Source
+
+```bash
+git clone https://github.com/zawakin/tree2md
+cd tree2md
+cargo build --release
+cargo test
+```
+
+---
+
+## 🤝 Contributing
+
+PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+For development:
+
+```bash
+cargo fmt
+cargo clippy -- -D warnings
+```
+
+---
+
+## 📂 Project Structure
+
+### Markdown-Style
+
+```bash
+tree2md -L 2 . --output md --inject README.md --tag-start '<tag-start>'
+```
 
 ````markdown
-## File Structure
-- my_project/
-  - src/
-    - main.rs
-    - lib.rs
-  - Cargo.toml
-  - README.md
+<!-- tree2md-md:start -->
+- .claude/
+- .github/
+- scripts/
+  - [update-readme-embeds.sh](scripts/update-readme-embeds.sh) (28 lines)
+- src/
+  - [cli.rs](src/cli.rs) (452 lines)
+  - [main.rs](src/main.rs) (262 lines)
+- tests/
+  - [emoji_test.rs](tests/emoji_test.rs) (175 lines)
+  - [exclude_pattern_test.rs](tests/exclude_pattern_test.rs) (125 lines)
+  - [filtering_test.rs](tests/filtering_test.rs) (295 lines)
+  - [fixtures.rs](tests/fixtures.rs) (272 lines)
+  - [html_output_test.rs](tests/html_output_test.rs) (448 lines)
+  - [include_directory_test.rs](tests/include_directory_test.rs) (112 lines)
+  - [include_pattern_test.rs](tests/include_pattern_test.rs) (85 lines)
+  - [links_test.rs](tests/links_test.rs) (377 lines)
+  - [output_format_test.rs](tests/output_format_test.rs) (177 lines)
+  - [preset_test.rs](tests/preset_test.rs) (203 lines)
+  - [safety_test.rs](tests/safety_test.rs) (357 lines)
+  - [spec_compliance_test.rs](tests/spec_compliance_test.rs) (422 lines)
+  - [stats_test.rs](tests/stats_test.rs) (279 lines)
+- [.gitignore](.gitignore) (30 lines)
+- [CHANGELOG.md](CHANGELOG.md) (252 lines)
+- [CLAUDE.md](CLAUDE.md) (9 lines)
+- [Cargo.lock](Cargo.lock)
+- [Cargo.toml](Cargo.toml) (36 lines)
+- [LICENSE](LICENSE) (21 lines)
+- [README.md](README.md) (310 lines)
 
-### src/main.rs
-```rust
-fn main() {
-    println!("Hello, world!");
-}
-```
+**Totals**: 📂 6 dirs • 📄 23 files • 🧾 ~4.7K LOC
 
-### src/lib.rs
-```rust
-pub fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-```
+**By type**:
+- Test: 12 (52%) ########-------
+- Rust: 3 (13%) ##-------------
+- Markdown: 3 (13%) ##-------------
+- License: 1 (4%) #--------------
+- TOML: 1 (4%) #--------------
+- Shell: 1 (4%) #--------------
+- Ignore: 1 (4%) #--------------
+- Lock: 1 (4%) #--------------
+
+<!-- tree2md-md:end -->
 ````
 
----
-
-## Supported languages
-
-Language detection for fenced code blocks (non-exhaustive):
-
-* Rust (.rs), Go (.go), Python (.py)
-* JavaScript (.js), TypeScript (.ts, .tsx)
-* HTML (.html), CSS (.css, .scss, .sass)
-* SQL (.sql), Shell (.sh)
-* TOML (.toml), YAML (.yaml, .yml)
-* JSON (.json), Markdown (.md)
-
----
-
-## Performance & security
-
-* Designed to be fast and memory-efficient.
-* Use `--truncate` / `--max-lines` for very large files.
-* Prefer `--respect-gitignore` to avoid noise.
-* Use `--restrict-root` in scripts/CI to prevent path escapes.
-
----
-
-## Build from source
-
-Requirements:
-
-* Rust **1.70** or later
-* Cargo
+### Tree-Style
 
 ```bash
-git clone https://github.com/zawakin/tree2md.git
-cd tree2md
-
-# Build release
-cargo build --release
-
-# Run tests
-cargo test
-
-# Install locally
-cargo install --path .
+tree2md -L 2 . --output md --inject README.md --tag-start '<tag-start>'
 ```
 
+
+````
+<!-- tree2md-tree:start -->
+|-- .claude/
+|-- .github/
+|-- scripts/
+|   `-- update-readme-embeds.sh        [██████████]      28 (S)
+|-- src/
+|   |-- cli.rs                         [██████████]     452 (L) ★
+|   `-- main.rs                        [██████····]     262 (M)
+|-- tests/
+|   |-- emoji_test.rs                  [████······]     175 (M)
+|   |-- exclude_pattern_test.rs        [███·······]     125 (M)
+|   |-- filtering_test.rs              [███████···]     295 (M)
+|   |-- fixtures.rs                    [███████···]     272 (M)
+|   |-- html_output_test.rs            [██████████]     448 (L) ★
+|   |-- include_directory_test.rs      [███·······]     112 (S)
+|   |-- include_pattern_test.rs        [██········]      85 (S)
+|   |-- links_test.rs                  [█████████·]     377 (L)
+|   |-- output_format_test.rs          [████······]     177 (M)
+|   |-- preset_test.rs                 [█████·····]     203 (M)
+|   |-- safety_test.rs                 [████████··]     357 (L)
+|   |-- spec_compliance_test.rs        [██████████]     422 (L)
+|   `-- stats_test.rs                  [███████···]     279 (M)
+|-- .gitignore                         [█·········]      30 (S)
+|-- CHANGELOG.md                       [█████████·]     252 (M)
+|-- CLAUDE.md                          [··········]       9 (XS)
+|-- Cargo.lock
+|-- Cargo.toml                         [██········]      36 (S)
+|-- LICENSE                            [█·········]      21 (S)
+`-- README.md                          [██████████]     310 (L)
+
+**Totals**: 📂 6 dirs • 📄 23 files • 🧾 ~4.7K LOC
+
+**By type**:
+- Test: 12 (52%) ########-------
+- Rust: 3 (13%) ##-------------
+- Markdown: 3 (13%) ##-------------
+- Lock: 1 (4%) #--------------
+- Shell: 1 (4%) #--------------
+- TOML: 1 (4%) #--------------
+- Ignore: 1 (4%) #--------------
+- License: 1 (4%) #--------------
+
+<!-- tree2md-tree:end -->
+````
+
+
 ---
 
-## Contributing
+## 📄 License
 
-Issues and PRs are welcome. Please include a clear description and, if possible, tests.
+MIT License — see [LICENSE](LICENSE).
 
 ---
 
-## License
+## 🙏 Acknowledgments
 
-MIT License
+Inspired by the classic `tree` command, designed for Markdown & GitHub integration.
+
+Made with ❤️ for the open source community.
