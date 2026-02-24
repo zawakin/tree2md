@@ -1,0 +1,204 @@
+# Git Workflow tasks (using gw CLI)
+#
+# Worktree-aware git workflow.
+# Uses origin/main as base instead of local main branch.
+#
+# gw: cargo install git-workflow
+# https://crates.io/crates/git-workflow
+
+["git:home"]
+description = "Switch to home branch and sync with origin/main"
+run = "gw home"
+
+["git:new"]
+description = "Create new branch from origin/main (mise run git:new -- feature/name)"
+run = "gw new"
+
+["git:cleanup"]
+description = "Delete merged branch and return to home (mise run git:cleanup -- [branch])"
+run = "gw cleanup"
+
+["git:status"]
+description = "Show current git workflow state"
+run = "gw status"
+
+["git:pause"]
+description = "Pause work: WIP commit + return to home (mise run git:pause -- [message])"
+run = "gw pause"
+
+["git:abandon"]
+description = "Abandon changes and return to home"
+run = "gw abandon"
+
+["git:undo"]
+description = "Undo last commit (soft reset HEAD~1)"
+run = "gw undo"
+
+["git:sync"]
+description = "Sync current branch after base PR merge (update base to main, rebase, push)"
+run = "gw sync"
+
+["git:open-pr"]
+description = "CI wait → open in browser → watch merge → cleanup (mise run git:open-pr -- <pr-number-or-url> [--no-wait])"
+run = """
+#!/bin/bash
+set -euo pipefail
+
+# --- Helpers ---
+
+open_url() {
+  local url="$1"
+  local chrome_profile="${GW_CHROME_PROFILE:-PR}"
+
+  # macOS: try Chrome with profile, then default browser
+  if [[ "$(uname)" == "Darwin" ]]; then
+    if [[ -d "/Applications/Google Chrome.app" ]]; then
+      local profile_dir
+      profile_dir=$(python3 -c "
+import json, sys, pathlib
+data = json.loads((pathlib.Path.home() / 'Library/Application Support/Google/Chrome/Local State').read_text())
+profiles = data.get('profile', {}).get('info_cache', {})
+for key, val in profiles.items():
+    if val.get('name') == sys.argv[1]: print(key); sys.exit(0)
+sys.exit(1)
+" "$chrome_profile" 2>/dev/null) || profile_dir=""
+      if [[ -n "$profile_dir" ]]; then
+        open -na "Google Chrome" --args --profile-directory="$profile_dir" "$url"
+        echo "Opened in Chrome profile \"$chrome_profile\": $url"
+        return 0
+      fi
+    fi
+    open "$url"
+    echo "Opened in default browser: $url"
+    return 0
+  fi
+
+  # Linux
+  if command -v xdg-open &>/dev/null; then
+    xdg-open "$url"; echo "Opened: $url"; return 0
+  fi
+
+  # Fallback
+  echo "Open: $url"
+}
+
+watch_pr() {
+  local pr="$1" interval="${2:-30}"
+  echo "[git:open-pr] Phase 3/3: Watching PR #${pr} for merge (interval: ${interval}s)..."
+  while true; do
+    local state
+    state=$(gh pr view "$pr" --json state --jq '.state' 2>/dev/null || echo "ERROR")
+    case "$state" in
+      MERGED)
+        echo ""
+        echo "========================================"
+        echo "[git:open-pr] PR #${pr} MERGED!"
+        echo "========================================"
+        if command -v osascript &>/dev/null; then
+          osascript -e 'display notification "PR #'"${pr}"' merged. Running cleanup..." with title "Git Workflow" sound name "Glass"'
+        fi
+        echo "[git:open-pr] Running: mise run git:cleanup"
+        mise run git:cleanup
+        return 0
+        ;;
+      CLOSED)
+        echo "[git:open-pr] PR #${pr} was closed without merging"
+        return 0
+        ;;
+      OPEN)   sleep "$interval" ;;
+      ERROR)  echo "[git:open-pr] Failed to fetch PR status, retrying..."; sleep "$interval" ;;
+    esac
+  done
+}
+
+# --- Main ---
+
+WAIT_CI=true
+ARG=""
+for arg in "$@"; do
+  case "$arg" in
+    --no-wait) WAIT_CI=false ;;
+    *) ARG="$arg" ;;
+  esac
+done
+
+if [[ -z "$ARG" ]]; then
+  echo "Usage: mise run git:open-pr -- <pr-number-or-url> [--no-wait]" >&2
+  exit 1
+fi
+
+if [[ "$ARG" =~ ^[0-9]+$ ]]; then
+  PR_NUMBER="$ARG"
+  URL=$(gh pr view "$PR_NUMBER" --json url --jq '.url')
+else
+  URL="$ARG"
+  PR_NUMBER=$(echo "$URL" | grep -oE '[0-9]+$' || "")
+fi
+
+# Phase 1: Wait for CI
+if [[ "$WAIT_CI" == true && -n "$PR_NUMBER" ]]; then
+  echo "[git:open-pr] Phase 1/3: Waiting for CI checks on PR #${PR_NUMBER}..."
+  gh pr checks "$PR_NUMBER" --watch || echo "[git:open-pr] CI checks failed or timed out, opening anyway"
+fi
+
+# Phase 2: Open in browser
+echo "[git:open-pr] Phase 2/3: Opening PR in browser..."
+open_url "$URL"
+
+# Phase 3: Watch for merge
+if [[ -n "$PR_NUMBER" ]]; then
+  watch_pr "$PR_NUMBER"
+fi
+"""
+
+["git:watch-pr"]
+description = "Watch PR and auto-cleanup when merged (mise run git:watch-pr -- <pr-number> [interval])"
+run = """
+#!/bin/bash
+set -euo pipefail
+PR_NUMBER="${1:-}"
+INTERVAL="${2:-30}"
+if [[ -z "$PR_NUMBER" ]]; then
+  echo "Usage: mise run git:watch-pr -- <pr-number> [interval]" >&2
+  exit 1
+fi
+echo "[git:watch-pr] Watching PR #${PR_NUMBER} (interval: ${INTERVAL}s)"
+while true; do
+  STATE=$(gh pr view "$PR_NUMBER" --json state --jq '.state' 2>/dev/null || echo "ERROR")
+  case "$STATE" in
+    MERGED)
+      echo ""; echo "========================================"; echo "[git:watch-pr] PR #${PR_NUMBER} MERGED!"; echo "========================================"
+      printf '\\a'
+      if command -v osascript &>/dev/null; then
+        osascript -e 'display notification "PR #'"${PR_NUMBER}"' merged. Running cleanup..." with title "Git Workflow" sound name "Glass"'
+      fi
+      echo "[git:watch-pr] Running: mise run git:cleanup"
+      if mise run git:cleanup; then
+        echo ""; echo "========================================"; echo "[git:watch-pr] CLEANUP COMPLETED"; echo "========================================"
+        printf '\\a'
+        if command -v osascript &>/dev/null; then
+          osascript -e 'display notification "Cleanup completed for PR #'"${PR_NUMBER}"'" with title "Git Workflow" sound name "Glass"'
+        fi
+      else
+        echo "[git:watch-pr] Cleanup FAILED"; printf '\\a\\a\\a'
+      fi
+      exit 0 ;;
+    CLOSED) echo "[git:watch-pr] PR #${PR_NUMBER} was closed without merging"; exit 0 ;;
+    OPEN)   echo "[git:watch-pr] PR #${PR_NUMBER} still open, checking again in ${INTERVAL}s..." ;;
+    ERROR)  echo "[git:watch-pr] Failed to fetch PR status" ;;
+  esac
+  sleep "$INTERVAL"
+done
+"""
+
+["git:worktree:status"]
+description = "Show pool worktree status (available/total)"
+run = "gw worktree pool status"
+
+["git:worktree:acquire"]
+description = "Acquire a pool worktree (prints path to stdout)"
+run = "gw worktree pool acquire"
+
+["git:worktree:release"]
+description = "Release a pool worktree (mise run git:worktree:release -- <name>)"
+run = "gw worktree pool release"
