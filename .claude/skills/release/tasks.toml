@@ -1,0 +1,100 @@
+# Release tasks
+#
+# Tag-driven release workflow.
+# GitHub Actions handles build, release, and publish on v* tag push.
+
+["release:tag"]
+description = "Create and push git tag from Cargo.toml version on origin/main"
+run = """
+#!/bin/bash
+set -euo pipefail
+
+git fetch origin main
+
+VERSION=$(git show origin/main:Cargo.toml | grep '^version *= *"' | sed 's/.*"\\(.*\\)".*/\\1/')
+TAG="v${VERSION}"
+
+if [ -z "$VERSION" ]; then
+  echo "Error: could not read version from Cargo.toml" >&2
+  exit 1
+fi
+
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+  echo "Error: tag $TAG already exists" >&2
+  exit 1
+fi
+
+echo "Creating tag: $TAG"
+git tag -a "$TAG" -m "Release $TAG" origin/main
+git push origin "$TAG"
+echo ""
+echo "========================================"
+echo "Tag $TAG pushed — GitHub Actions will start automatically"
+echo "========================================"
+echo ""
+echo "Next: mise run release:watch"
+"""
+
+["release:watch"]
+description = "Watch release CI triggered by latest v* tag (mise run release:watch -- [vX.Y.Z])"
+run = """
+#!/bin/bash
+set -euo pipefail
+
+TAG="${1:-}"
+if [ -z "$TAG" ]; then
+  TAG=$(git tag --sort=-v:refname | head -1)
+fi
+
+if [ -z "$TAG" ]; then
+  echo "Error: no tags found" >&2
+  exit 1
+fi
+
+echo "[release:watch] Watching release workflow for tag: $TAG"
+
+# Wait for the workflow run to appear
+echo "[release:watch] Waiting for workflow run to start..."
+for i in $(seq 1 30); do
+  RUN_ID=$(gh run list --workflow=release.yml --branch="$TAG" --json databaseId,status --jq '.[0].databaseId' 2>/dev/null || echo "")
+  if [ -n "$RUN_ID" ]; then
+    break
+  fi
+  sleep 2
+done
+
+if [ -z "$RUN_ID" ]; then
+  echo "Error: no workflow run found for tag $TAG after 60s" >&2
+  echo "Check: gh run list --workflow=release.yml" >&2
+  exit 1
+fi
+
+echo "[release:watch] Found run: $RUN_ID"
+echo "[release:watch] Watching... (gh run watch $RUN_ID)"
+echo ""
+
+if gh run watch "$RUN_ID" --exit-status; then
+  echo ""
+  echo "========================================"
+  echo "[release:watch] Release $TAG succeeded!"
+  echo "========================================"
+  RELEASE_URL=$(gh release view "$TAG" --json url --jq '.url' 2>/dev/null || echo "")
+  if [ -n "$RELEASE_URL" ]; then
+    echo "GitHub Release: $RELEASE_URL"
+  fi
+  echo "crates.io: https://crates.io/crates/tree2md"
+  if command -v osascript &>/dev/null; then
+    osascript -e 'display notification "Release '"$TAG"' published successfully" with title "Release" sound name "Glass"'
+  fi
+else
+  echo ""
+  echo "========================================"
+  echo "[release:watch] Release $TAG FAILED"
+  echo "========================================"
+  echo "Check logs: gh run view $RUN_ID --log-failed"
+  if command -v osascript &>/dev/null; then
+    osascript -e 'display notification "Release '"$TAG"' failed!" with title "Release" sound name "Basso"'
+  fi
+  exit 1
+fi
+"""
