@@ -2,7 +2,7 @@ mod fixtures;
 
 use fixtures::{p, run_tree2md, FixtureBuilder};
 
-/// Test the filtering precedence: include > exclude > gitignore > safe
+/// Test the filtering precedence: exclude narrows include, include overrides gitignore/safe
 #[test]
 fn test_precedence_include_wins_over_all() {
     let (_tmp, root) = FixtureBuilder::new()
@@ -13,7 +13,7 @@ fn test_precedence_include_wins_over_all() {
         .file(".gitignore", "*.log\n")
         .build();
 
-    // Test: Include pattern should win over everything
+    // Test: Include overrides gitignore and safe, but exclude narrows include
     let (output, _, success) = run_tree2md([
         p(&root),
         "-I".into(),
@@ -21,23 +21,25 @@ fn test_precedence_include_wins_over_all() {
         "-I".into(),
         "*.log".into(), // Include .log (beats gitignore)
         "-I".into(),
-        "*.tmp".into(), // Include .tmp (beats exclude)
+        "*.tmp".into(), // Include .tmp
         "-I".into(),
         "*.rs".into(), // Include .rs files
         "-X".into(),
-        "*.tmp".into(), // Exclude .tmp (but include wins)
+        "*.tmp".into(), // Exclude .tmp (exclude narrows include)
     ]);
     assert!(success);
 
-    // All explicitly included files should be present
+    // Include overrides safe mode and gitignore
     assert!(output.contains(".env"), "Include should override safe mode");
     assert!(
         output.contains("temp.log"),
         "Include should override gitignore"
     );
+
+    // Exclude narrows include: *.tmp is both included and excluded, exclude wins
     assert!(
-        output.contains("test.tmp"),
-        "Include should override exclude"
+        !output.contains("test.tmp"),
+        "Exclude should narrow include"
     );
     assert!(output.contains("main.rs"), "Should include .rs files");
 }
