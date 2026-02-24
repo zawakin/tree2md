@@ -1,5 +1,6 @@
-use crate::cli::Args;
+use crate::cli::{Args, ContentsMode};
 use crate::content::io::is_binary_extension;
+use crate::content::truncate::{allocate_budget, truncate_head, truncate_nest};
 use crate::fs_tree::{LocCounter, Node};
 use crate::language::detect_lang;
 use crate::output::stats::Stats;
@@ -65,49 +66,123 @@ impl<'a> PipeRenderer<'a> {
     }
 
     fn render_contents(&mut self, dir: &IrDir) {
-        // Render file contents in DFS order
-        for subdir in &dir.dirs {
-            self.render_contents(subdir);
-        }
-
-        for file in &dir.files {
-            self.render_file_content(file);
+        match self.args.max_chars {
+            Some(max_chars) => self.render_contents_with_budget(dir, max_chars),
+            None => self.render_contents_unlimited(dir),
         }
     }
 
-    fn render_file_content(&mut self, file: &IrFile) {
-        // Skip binary files by extension
-        if is_binary_extension(&file.path) {
+    fn render_contents_unlimited(&mut self, dir: &IrDir) {
+        for subdir in &dir.dirs {
+            self.render_contents_unlimited(subdir);
+        }
+        for file in &dir.files {
+            self.render_file_content(file, None);
+        }
+    }
+
+    fn render_contents_with_budget(&mut self, dir: &IrDir, max_chars: usize) {
+        // Collect all readable files in DFS order
+        let files = collect_files(dir);
+
+        // Read all file contents
+        let contents: Vec<Option<String>> = files
+            .iter()
+            .map(|f| {
+                if is_binary_extension(&f.path) {
+                    None
+                } else {
+                    std::fs::read_to_string(&f.path).ok()
+                }
+            })
+            .collect();
+
+        // Check if total fits within budget
+        let total_chars: usize = contents
+            .iter()
+            .map(|c| c.as_ref().map_or(0, |s| s.len()))
+            .sum();
+        if total_chars <= max_chars {
+            // No truncation needed
+            for (file, content) in files.iter().zip(contents.iter()) {
+                if let Some(content) = content {
+                    self.emit_file_section(file, content, 0);
+                }
+            }
             return;
         }
 
+        // Allocate budget proportionally
+        let sizes: Vec<usize> = contents
+            .iter()
+            .map(|c| c.as_ref().map_or(0, |s| s.len()))
+            .collect();
+        let budgets = allocate_budget(&sizes, max_chars);
+
+        let mode = &self.args.contents_mode;
+        for ((file, content), budget) in files.iter().zip(contents.iter()).zip(budgets.iter()) {
+            if let Some(content) = content {
+                if content.len() <= *budget {
+                    self.emit_file_section(file, content, 0);
+                } else {
+                    let (truncated, omitted) = match mode {
+                        ContentsMode::Head => truncate_head(content, *budget),
+                        ContentsMode::Nest => truncate_nest(content, *budget),
+                    };
+                    self.emit_file_section(file, &truncated, omitted);
+                }
+            }
+        }
+    }
+
+    fn render_file_content(&mut self, file: &IrFile, _max_chars: Option<usize>) {
+        if is_binary_extension(&file.path) {
+            return;
+        }
+        if let Ok(content) = std::fs::read_to_string(&file.path) {
+            self.emit_file_section(file, &content, 0);
+        }
+    }
+
+    fn emit_file_section(&mut self, file: &IrFile, content: &str, omitted_lines: usize) {
         let file_name = file
             .path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-
         let lang_hint = detect_lang(&file_name).map(|l| l.name).unwrap_or("");
 
-        // Read from the actual filesystem path, display using display_path
-        match std::fs::read_to_string(&file.path) {
-            Ok(content) => {
-                self.output.push_str(&format!(
-                    "\n## {}\n\n```{}\n",
-                    file.display_path.display(),
-                    lang_hint
-                ));
-                self.output.push_str(&content);
-                if !content.ends_with('\n') {
-                    self.output.push('\n');
-                }
-                self.output.push_str("```\n");
-            }
-            Err(_) => {
-                // Skip files that can't be read
-            }
+        self.output.push_str(&format!(
+            "\n## {}\n\n```{}\n",
+            file.display_path.display(),
+            lang_hint
+        ));
+        self.output.push_str(content);
+        if !content.ends_with('\n') {
+            self.output.push('\n');
         }
+        if omitted_lines > 0 {
+            self.output
+                .push_str(&format!("... ({} lines omitted)\n", omitted_lines));
+        }
+        self.output.push_str("```\n");
+    }
+}
+
+/// Collect all files in DFS order from an IrDir tree.
+fn collect_files(dir: &IrDir) -> Vec<&IrFile> {
+    let mut result = Vec::new();
+    collect_files_rec(dir, &mut result);
+    result
+}
+
+fn collect_files_rec<'a>(dir: &'a IrDir, out: &mut Vec<&'a IrFile>) {
+    for subdir in &dir.dirs {
+        collect_files_rec(subdir, out);
+    }
+    for file in &dir.files {
+        out.push(file);
     }
 }
 
@@ -158,7 +233,7 @@ impl<'a> Renderer for PipeRenderer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{FunMode, LocMode, StatsMode};
+    use crate::cli::{ContentsMode, FunMode, LocMode, StatsMode};
     use crate::fs_tree::Node;
     use std::path::PathBuf;
 
@@ -176,6 +251,8 @@ mod tests {
             stats: StatsMode::Off,
             loc: LocMode::Off,
             contents: false,
+            max_chars: None,
+            contents_mode: ContentsMode::Head,
             safe: true,
             unsafe_mode: false,
         }

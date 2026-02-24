@@ -269,6 +269,8 @@ mod tests {
             stats: StatsMode::Off,
             loc: LocMode::Off,
             contents: false,
+            max_chars: None,
+            contents_mode: crate::cli::ContentsMode::Head,
             safe: true,
             unsafe_mode: false,
         }
