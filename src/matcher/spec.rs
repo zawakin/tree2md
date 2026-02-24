@@ -48,13 +48,13 @@ impl MatchSpec {
 
     /// Normalize a glob pattern to be recursive if it doesn't contain path separators
     /// For example: "*.rs" becomes "**/*.rs" to match files at any depth
-    /// For directory names like "specs", it becomes "specs/**" to match everything under that directory
+    /// For directory names like "specs", it becomes "**/{name}/**" to match at any depth (like .gitignore)
     fn normalize_pattern(pattern: &str) -> String {
         if !pattern.contains('/') {
             // Check if this looks like a directory name (no wildcards or extensions)
             if !pattern.contains('*') && !pattern.contains('.') {
-                // Likely a directory name, match everything under it
-                format!("{}/**", pattern)
+                // Likely a directory name, match everything under it at any depth
+                format!("**/{}/**", pattern)
             } else {
                 // File pattern, make it recursive
                 format!("**/{}", pattern)
@@ -216,5 +216,14 @@ mod tests {
 
         assert_eq!(spec.exclude_glob[0], "**/*.tmp");
         assert_eq!(spec.exclude_glob[1], "build/");
+
+        // Test directory name normalization: bare names become **/{name}/**
+        let spec = MatchSpec::new().with_exclude_glob(vec![
+            "__tests__".to_string(), // Should be normalized to **/__tests__/**
+            "vendor".to_string(),    // Should be normalized to **/vendor/**
+        ]);
+
+        assert_eq!(spec.exclude_glob[0], "**/__tests__/**");
+        assert_eq!(spec.exclude_glob[1], "**/vendor/**");
     }
 }
