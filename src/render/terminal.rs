@@ -25,8 +25,6 @@ impl<'a> TerminalRenderer<'a> {
         let detector = TerminalDetector::new();
         let capabilities = TerminalCapabilities::new();
 
-        // Set up emoji mapper based on fun mode
-        // When fun is explicitly on, force emojis even if terminal detection is conservative
         let use_emoji = args.is_fun_enabled(detector.is_tty());
         let mut emoji_mapper = EmojiMapper::new(use_emoji);
 
@@ -52,11 +50,10 @@ impl<'a> TerminalRenderer<'a> {
             stats: Stats::new(),
             loc_counter: LocCounter::new(args.loc.clone()),
             output: String::new(),
-            global_threshold: 0, // Will be calculated when rendering
+            global_threshold: 0,
         }
     }
 
-    // Helper to collect all files for max width calculation
     #[allow(clippy::only_used_in_recursion)]
     fn collect_all_files(
         &self,
@@ -65,7 +62,7 @@ impl<'a> TerminalRenderer<'a> {
         prefix_len: usize,
     ) {
         for subdir in &dir.dirs {
-            let new_prefix_len = prefix_len + 2; // Account for tree characters
+            let new_prefix_len = prefix_len + 2;
             self.collect_all_files(subdir, files, new_prefix_len);
         }
 
@@ -77,14 +74,11 @@ impl<'a> TerminalRenderer<'a> {
     fn render_ir_dir_aligned(&mut self, dir: &IrDir, prefix: &str, max_name_width: usize) {
         let tree_chars = self.capabilities.tree_chars();
 
-        // Calculate max LOC in this directory for local normalization
         let max_loc_in_dir = dir.files.iter().filter_map(|f| f.loc).max().unwrap_or(0);
 
-        // Render subdirectories first
         for (i, subdir) in dir.dirs.iter().enumerate() {
             let subdir_is_last = i == dir.dirs.len() - 1 && dir.files.is_empty();
 
-            // Get emoji for directory
             let dir_emoji = self
                 .emoji_mapper
                 .get_emoji(&subdir.display_path, FileType::Directory);
@@ -94,7 +88,6 @@ impl<'a> TerminalRenderer<'a> {
                 String::new()
             };
 
-            // Render directory name
             self.output.push_str(&format!(
                 "{}{}{}{}/\n",
                 prefix,
@@ -107,7 +100,6 @@ impl<'a> TerminalRenderer<'a> {
                 subdir.name
             ));
 
-            // Render directory contents with updated prefix
             let new_prefix = format!(
                 "{}{}",
                 prefix,
@@ -120,7 +112,6 @@ impl<'a> TerminalRenderer<'a> {
             self.render_ir_dir_aligned(subdir, &new_prefix, max_name_width);
         }
 
-        // Then render files with local normalization
         for (i, file) in dir.files.iter().enumerate() {
             let file_is_last = i == dir.files.len() - 1;
             self.render_ir_file_with_local_scale(
@@ -155,41 +146,29 @@ impl<'a> TerminalRenderer<'a> {
             String::new()
         };
 
-        // Build the name part with tree structure
         self.output.push_str(prefix);
         self.output.push_str(branch);
         let name_with_emoji = format!("{}{}", emoji_str, file.name);
         self.output.push_str(&name_with_emoji);
 
-        // Add LOC visualization if available
         if let Some(loc) = file.loc {
-            // Calculate padding for global alignment
-            let current_len = prefix.len() + 2 + name_with_emoji.len(); // 2 for branch chars
+            let current_len = prefix.len() + 2 + name_with_emoji.len();
             let padding = if current_len < max_name_width {
                 " ".repeat(max_name_width - current_len)
             } else {
                 "  ".to_string()
             };
 
-            // Generate bar with local normalization (10 cells wide)
             let bar = loc_to_bar(loc, max_loc_in_dir, 10);
-            // Bar already includes brackets, no need for additional formatting
-
-            // Format LOC display
             let loc_display = format_loc_display(loc);
             let loc_formatted = format!("{:>6}", loc_display);
-
-            // Get category
             let category = loc_category(loc);
-
-            // Check if it's a global outlier
             let star = if is_global_outlier(loc, self.global_threshold) {
                 " ★"
             } else {
                 ""
             };
 
-            // Output format: padding + bar + loc + (category) + star
             self.output.push_str(&format!(
                 "{}  {}  {} ({}){}",
                 padding, bar, loc_formatted, category, star
@@ -205,12 +184,10 @@ impl<'a> Renderer for TerminalRenderer<'a> {
         self.output.clear();
         self.stats.reset();
 
-        // Count root directory in stats if it has children
         if !root.children.is_empty() {
             self.stats.add_directory();
         }
 
-        // Build IR with aggregation
         let mut ctx = AggregationContext {
             emoji_mapper: &self.emoji_mapper,
             stats: &mut self.stats,
@@ -219,23 +196,19 @@ impl<'a> Renderer for TerminalRenderer<'a> {
 
         let ir = build_ir(root, &mut ctx);
 
-        // Calculate maximum name width across all files
         let mut all_files = Vec::new();
         self.collect_all_files(&ir, &mut all_files, 0);
 
-        // Find the maximum width needed for alignment
         let max_name_width = all_files
             .iter()
             .map(|(name, _)| name.len())
             .max()
             .unwrap_or(0)
-            + 10; // Add some padding for tree characters and emoji
+            + 10;
 
-        // Calculate global threshold (95th percentile or top 10 files)
         let mut all_locs: Vec<usize> = all_files.iter().filter_map(|(_, loc)| *loc).collect();
-        all_locs.sort_unstable_by(|a, b| b.cmp(a)); // Sort descending
+        all_locs.sort_unstable_by(|a, b| b.cmp(a));
 
-        // Use 95th percentile or top 10, whichever is more restrictive
         let percentile_95_idx = (all_locs.len() as f64 * 0.05).ceil() as usize;
         let top_n_idx = 10.min(all_locs.len());
         let threshold_idx = percentile_95_idx.min(top_n_idx);
@@ -243,10 +216,9 @@ impl<'a> Renderer for TerminalRenderer<'a> {
         self.global_threshold = if threshold_idx > 0 && threshold_idx <= all_locs.len() {
             all_locs[threshold_idx - 1]
         } else {
-            usize::MAX // No files qualify as outliers
+            usize::MAX
         };
 
-        // Render the IR with global alignment
         self.render_ir_dir_aligned(&ir, "", max_name_width);
 
         if self.args.should_show_stats() {
@@ -277,12 +249,10 @@ impl<'a> Renderer for TerminalRenderer<'a> {
     }
 }
 
-// Removed old stats helper methods - no longer needed
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{FunMode, LinksMode, LocMode, OutputMode, StatsMode};
+    use crate::cli::{FunMode, LocMode, StatsMode};
     use std::path::PathBuf;
 
     fn create_test_args() -> Args {
@@ -292,28 +262,15 @@ mod tests {
             include: vec![],
             exclude: vec![],
             use_gitignore: crate::cli::UseGitignoreMode::Auto,
-            links: LinksMode::Off,
-            github: None,
             emoji: vec![],
             emoji_map: None,
-            output: OutputMode::Tty,
-            preset: None,
             fun: FunMode::Off,
             no_anim: false,
-            fold: crate::cli::FoldMode::Off,
             stats: StatsMode::Off,
-            no_stats: false,
             loc: LocMode::Off,
             contents: false,
             safe: true,
             unsafe_mode: false,
-            restrict_root: None,
-            stamp: vec![],
-            stamp_date_format: "%Y-%m-%d".to_string(),
-            inject: None,
-            tag_start: "<!-- tree2md:start -->".to_string(),
-            tag_end: "<!-- tree2md:end -->".to_string(),
-            dry_run: false,
         }
     }
 
@@ -355,15 +312,6 @@ mod tests {
         assert!(output.contains("dir1/"));
         assert!(output.contains("file1.txt"));
         assert!(output.contains("file2.rs"));
-    }
-
-    #[test]
-    fn test_terminal_renderer_with_unicode_trees() {
-        let args = create_test_args();
-        let _renderer = TerminalRenderer::new(&args);
-
-        // Test passes if renderer creates successfully
-        // Unicode support is handled internally
     }
 
     #[test]

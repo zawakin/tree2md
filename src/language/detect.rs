@@ -4,15 +4,12 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Lang {
-    pub ext: &'static str,
     pub name: &'static str,
-    pub comment_prefix: Option<&'static str>,
-    pub comment_wrap: Option<(&'static str, &'static str)>,
 }
 
 impl PartialEq for Lang {
     fn eq(&self, other: &Self) -> bool {
-        self.ext == other.ext && self.name == other.name
+        self.name == other.name
     }
 }
 
@@ -20,165 +17,29 @@ pub static LANG_BY_EXT: Lazy<HashMap<&'static str, Lang>> = Lazy::new(|| {
     let mut m = HashMap::new();
 
     // Programming languages
-    m.insert(
-        "go",
-        Lang {
-            ext: "go",
-            name: "go",
-            comment_prefix: Some("// "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "py",
-        Lang {
-            ext: "py",
-            name: "python",
-            comment_prefix: Some("# "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "rs",
-        Lang {
-            ext: "rs",
-            name: "rust",
-            comment_prefix: Some("// "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "js",
-        Lang {
-            ext: "js",
-            name: "javascript",
-            comment_prefix: Some("// "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "ts",
-        Lang {
-            ext: "ts",
-            name: "typescript",
-            comment_prefix: Some("// "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "tsx",
-        Lang {
-            ext: "tsx",
-            name: "tsx",
-            comment_prefix: Some("// "),
-            comment_wrap: None,
-        },
-    );
+    m.insert("go", Lang { name: "go" });
+    m.insert("py", Lang { name: "python" });
+    m.insert("rs", Lang { name: "rust" });
+    m.insert("js", Lang { name: "javascript" });
+    m.insert("ts", Lang { name: "typescript" });
+    m.insert("tsx", Lang { name: "tsx" });
 
     // Shell scripts
-    m.insert(
-        "sh",
-        Lang {
-            ext: "sh",
-            name: "shell",
-            comment_prefix: Some("# "),
-            comment_wrap: None,
-        },
-    );
+    m.insert("sh", Lang { name: "shell" });
 
     // Web technologies
-    m.insert(
-        "html",
-        Lang {
-            ext: "html",
-            name: "html",
-            comment_prefix: None,
-            comment_wrap: Some(("<!-- ", " -->")),
-        },
-    );
-    m.insert(
-        "css",
-        Lang {
-            ext: "css",
-            name: "css",
-            comment_prefix: None,
-            comment_wrap: Some(("/* ", " */")),
-        },
-    );
-    m.insert(
-        "scss",
-        Lang {
-            ext: "scss",
-            name: "scss",
-            comment_prefix: None,
-            comment_wrap: Some(("/* ", " */")),
-        },
-    );
-    m.insert(
-        "sass",
-        Lang {
-            ext: "sass",
-            name: "sass",
-            comment_prefix: None,
-            comment_wrap: Some(("/* ", " */")),
-        },
-    );
+    m.insert("html", Lang { name: "html" });
+    m.insert("css", Lang { name: "css" });
+    m.insert("scss", Lang { name: "scss" });
+    m.insert("sass", Lang { name: "sass" });
 
     // Data/Config files
-    m.insert(
-        "json",
-        Lang {
-            ext: "json",
-            name: "json",
-            comment_prefix: None,
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "toml",
-        Lang {
-            ext: "toml",
-            name: "toml",
-            comment_prefix: Some("# "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "yaml",
-        Lang {
-            ext: "yaml",
-            name: "yaml",
-            comment_prefix: Some("# "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "yml",
-        Lang {
-            ext: "yml",
-            name: "yaml",
-            comment_prefix: Some("# "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "sql",
-        Lang {
-            ext: "sql",
-            name: "sql",
-            comment_prefix: Some("-- "),
-            comment_wrap: None,
-        },
-    );
-    m.insert(
-        "md",
-        Lang {
-            ext: "md",
-            name: "markdown",
-            comment_prefix: None,
-            comment_wrap: Some(("<!-- ", " -->")),
-        },
-    );
+    m.insert("json", Lang { name: "json" });
+    m.insert("toml", Lang { name: "toml" });
+    m.insert("yaml", Lang { name: "yaml" });
+    m.insert("yml", Lang { name: "yaml" });
+    m.insert("sql", Lang { name: "sql" });
+    m.insert("md", Lang { name: "markdown" });
 
     m
 });

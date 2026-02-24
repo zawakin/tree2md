@@ -205,40 +205,6 @@ fn test_include_ssh_directory() {
 }
 
 #[test]
-fn test_restrict_root_valid() {
-    let (_tmp, root) = FixtureBuilder::new()
-        .file("project/file.txt", "content")
-        .file("project/subdir/sub.txt", "sub content")
-        .build();
-
-    let project = root.join("project");
-
-    // Run with restrict-root set to project directory
-    let (output, _, success) = run_tree2md([p(&project), "--restrict-root".into(), p(&project)]);
-    assert!(success);
-
-    // Should include files within the restricted root
-    assert!(output.contains("file.txt"));
-    assert!(output.contains("sub.txt"));
-}
-
-#[test]
-fn test_restrict_root_escape_attempt() {
-    let (_tmp, root) = FixtureBuilder::new()
-        .file("parent/parent.txt", "parent")
-        .file("parent/child/child.txt", "child")
-        .build();
-
-    let child = root.join("parent").join("child");
-
-    // This test would need symlinks to properly test escape attempts
-    // For now, we'll just verify the flag is accepted
-    let (output, _, success) = run_tree2md([p(&child), "--restrict-root".into(), p(&child)]);
-    assert!(success);
-    assert!(output.contains("child.txt"));
-}
-
-#[test]
 fn test_safe_mode_with_gitignore() {
     let (_tmp, root) = FixtureBuilder::new()
         .file("main.rs", "fn main() {}")

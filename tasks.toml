@@ -1,0 +1,27 @@
+[verify]
+description = "Run all checks: fmt, clippy, tests"
+run = """
+#!/bin/bash
+set -euo pipefail
+echo "=== cargo fmt --check ==="
+cargo fmt -- --check
+echo "=== cargo clippy ==="
+cargo clippy -- -D warnings
+echo "=== cargo test ==="
+cargo test
+echo "=== cargo test --test '*' ==="
+cargo test --test '*'
+echo "=== All checks passed ==="
+"""
+
+[fix]
+description = "Auto-fix: format and apply clippy suggestions"
+run = """
+#!/bin/bash
+set -euo pipefail
+echo "=== cargo fmt ==="
+cargo fmt
+echo "=== cargo clippy --fix ==="
+cargo clippy --fix --allow-dirty --allow-staged -- -D warnings
+echo "=== Done ==="
+"""

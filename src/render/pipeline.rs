@@ -7,6 +7,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct IrFile {
     pub name: String,
+    /// Actual filesystem path (for reading file contents)
+    pub path: PathBuf,
     pub display_path: PathBuf,
     #[allow(dead_code)]
     pub file_type: FileType,
@@ -80,6 +82,7 @@ fn build_ir_node(node: &Node, ctx: &mut AggregationContext) -> IrDir {
             // Create IR file
             let ir_file = IrFile {
                 name: child.name.clone(),
+                path: child.path.clone(),
                 display_path: child.display_path.clone(),
                 file_type,
                 emoji,
@@ -189,6 +192,7 @@ mod tests {
             files: vec![
                 IrFile {
                     name: "file1.txt".to_string(),
+                    path: PathBuf::from("test/file1.txt"),
                     display_path: PathBuf::from("test/file1.txt"),
                     file_type: FileType::Text,
                     emoji: String::new(),
@@ -197,6 +201,7 @@ mod tests {
                 },
                 IrFile {
                     name: "file2.txt".to_string(),
+                    path: PathBuf::from("test/file2.txt"),
                     display_path: PathBuf::from("test/file2.txt"),
                     file_type: FileType::Text,
                     emoji: String::new(),

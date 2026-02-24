@@ -91,7 +91,7 @@ fn test_level_depth_limiting() {
         .build();
 
     // Test depth limit of 3 (to see up to dir2 and its contents)
-    let (output, stderr, success) = run_tree2md([p(&root), "-L".into(), "3".into()]);
+    let (output, _stderr, success) = run_tree2md([p(&root), "-L".into(), "3".into()]);
     assert!(success);
 
     // Should include everything up to and including depth 3
