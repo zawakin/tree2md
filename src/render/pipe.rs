@@ -1,6 +1,8 @@
 use crate::cli::{Args, ContentsMode};
 use crate::content::io::is_binary_extension;
-use crate::content::truncate::{allocate_budget, truncate_head, truncate_nest};
+use crate::content::truncate::{
+    collapse_at_indent, find_head_n, find_nest_threshold, truncate_head_lines,
+};
 use crate::fs_tree::{LocCounter, Node};
 use crate::language::detect_lang;
 use crate::output::stats::Stats;
@@ -103,7 +105,6 @@ impl<'a> PipeRenderer<'a> {
             .map(|c| c.as_ref().map_or(0, |s| s.len()))
             .sum();
         if total_chars <= max_chars {
-            // No truncation needed
             for (file, content) in files.iter().zip(contents.iter()) {
                 if let Some(content) = content {
                     self.emit_file_section(file, content, 0);
@@ -112,24 +113,41 @@ impl<'a> PipeRenderer<'a> {
             return;
         }
 
-        // Allocate budget proportionally
-        let sizes: Vec<usize> = contents
-            .iter()
-            .map(|c| c.as_ref().map_or(0, |s| s.len()))
-            .collect();
-        let budgets = allocate_budget(&sizes, max_chars);
+        // Collect only the readable contents as &str for uniform parameter search
+        let readable_strs: Vec<&str> = contents.iter().filter_map(|c| c.as_deref()).collect();
 
-        let mode = &self.args.contents_mode;
-        for ((file, content), budget) in files.iter().zip(contents.iter()).zip(budgets.iter()) {
-            if let Some(content) = content {
-                if content.len() <= *budget {
-                    self.emit_file_section(file, content, 0);
-                } else {
-                    let (truncated, omitted) = match mode {
-                        ContentsMode::Head => truncate_head(content, *budget),
-                        ContentsMode::Nest => truncate_nest(content, *budget),
-                    };
-                    self.emit_file_section(file, &truncated, omitted);
+        match &self.args.contents_mode {
+            ContentsMode::Head => {
+                let n = find_head_n(&readable_strs, max_chars);
+                for (file, content) in files.iter().zip(contents.iter()) {
+                    if let Some(content) = content {
+                        let (truncated, omitted) = truncate_head_lines(content, n);
+                        self.emit_file_section(file, &truncated, omitted);
+                    }
+                }
+            }
+            ContentsMode::Nest => {
+                let threshold = find_nest_threshold(&readable_strs, max_chars);
+                match threshold {
+                    Some(t) => {
+                        for (file, content) in files.iter().zip(contents.iter()) {
+                            if let Some(content) = content {
+                                let lines: Vec<&str> = content.lines().collect();
+                                let (collapsed, omitted) = collapse_at_indent(&lines, t);
+                                self.emit_file_section(file, &collapsed, omitted);
+                            }
+                        }
+                    }
+                    None => {
+                        // Nest couldn't fit even at threshold=0, fall back to head
+                        let n = find_head_n(&readable_strs, max_chars);
+                        for (file, content) in files.iter().zip(contents.iter()) {
+                            if let Some(content) = content {
+                                let (truncated, omitted) = truncate_head_lines(content, n);
+                                self.emit_file_section(file, &truncated, omitted);
+                            }
+                        }
+                    }
                 }
             }
         }

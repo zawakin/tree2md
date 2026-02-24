@@ -1,97 +1,61 @@
-/// Truncate content by keeping the first `max_chars` characters at a line boundary.
+/// Truncate content to the first `n` lines.
 /// Returns (truncated_content, omitted_line_count).
-pub fn truncate_head(content: &str, max_chars: usize) -> (String, usize) {
-    if content.len() <= max_chars {
+pub fn truncate_head_lines(content: &str, n: usize) -> (String, usize) {
+    let lines: Vec<&str> = content.lines().collect();
+    if n >= lines.len() {
         return (content.to_string(), 0);
     }
-
-    let total_lines = content.lines().count();
-    let mut result = String::new();
-    let mut kept_lines = 0;
-
-    for line in content.lines() {
-        let candidate = if result.is_empty() {
-            line.len()
-        } else {
-            result.len() + 1 + line.len() // +1 for newline
-        };
-        if candidate > max_chars && !result.is_empty() {
-            break;
-        }
-        if !result.is_empty() {
-            result.push('\n');
-        }
-        result.push_str(line);
-        kept_lines += 1;
-    }
-
-    let omitted = total_lines.saturating_sub(kept_lines);
-    (result, omitted)
+    let kept = lines[..n].join("\n");
+    let omitted = lines.len() - n;
+    (kept, omitted)
 }
 
-/// Truncate content by keeping only low-indentation lines.
-/// Lines whose leading whitespace exceeds `max_indent` are collapsed into
-/// `... (N lines)` markers. `max_indent` is reduced until the result fits
-/// within `max_chars`.
-/// Returns (truncated_content, total_omitted_line_count).
-pub fn truncate_nest(content: &str, max_chars: usize) -> (String, usize) {
-    if content.len() <= max_chars {
-        return (content.to_string(), 0);
+/// Find the largest n such that taking the first n lines of each file
+/// keeps total chars <= max_chars. Uses binary search.
+pub fn find_head_n(file_contents: &[&str], max_chars: usize) -> usize {
+    if file_contents.is_empty() {
+        return 0;
     }
 
-    let lines: Vec<&str> = content.lines().collect();
-
-    // Find the maximum indent present
-    let max_existing_indent = lines
+    let max_lines = file_contents
         .iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| indent_level(l))
+        .map(|c| c.lines().count())
         .max()
         .unwrap_or(0);
 
-    // Progressively lower the indent threshold until we fit
-    for threshold in (0..=max_existing_indent).rev() {
-        let (result, omitted) = collapse_at_indent(&lines, threshold);
-        if result.len() <= max_chars {
-            return (result, omitted);
+    // Check if n=max_lines already fits
+    if total_chars_at_head_n(file_contents, max_lines) <= max_chars {
+        return max_lines;
+    }
+
+    // Binary search: lo is always feasible, hi is always infeasible
+    let mut lo: usize = 0;
+    let mut hi: usize = max_lines;
+
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        if total_chars_at_head_n(file_contents, mid) <= max_chars {
+            lo = mid;
+        } else {
+            hi = mid - 1;
         }
     }
 
-    // Even with threshold 0, still too large — fall back to head truncation
-    truncate_head(content, max_chars)
+    lo
 }
 
-/// Allocate a character budget proportionally across files.
-/// `file_sizes` contains (index, char_count) for each file.
-/// Returns per-file budget in the same order.
-pub fn allocate_budget(file_sizes: &[usize], total_budget: usize) -> Vec<usize> {
-    let total_chars: usize = file_sizes.iter().sum();
-    if total_chars == 0 || total_chars <= total_budget {
-        return file_sizes.to_vec();
-    }
-
-    let mut budgets: Vec<usize> = file_sizes
+fn total_chars_at_head_n(file_contents: &[&str], n: usize) -> usize {
+    file_contents
         .iter()
-        .map(|&size| ((size as f64 / total_chars as f64) * total_budget as f64).floor() as usize)
-        .collect();
-
-    // Distribute remaining budget from rounding
-    let allocated: usize = budgets.iter().sum();
-    let remaining = total_budget.saturating_sub(allocated);
-    let len = budgets.len();
-    for i in 0..remaining {
-        budgets[i % len] += 1;
-    }
-
-    budgets
-}
-
-fn indent_level(line: &str) -> usize {
-    line.len() - line.trim_start().len()
+        .map(|content| {
+            let (truncated, _) = truncate_head_lines(content, n);
+            truncated.len()
+        })
+        .sum()
 }
 
 /// Collapse lines with indent > threshold into `... (N lines)` markers.
-fn collapse_at_indent(lines: &[&str], threshold: usize) -> (String, usize) {
+pub fn collapse_at_indent(lines: &[&str], threshold: usize) -> (String, usize) {
     let mut result = String::new();
     let mut total_omitted = 0;
     let mut i = 0;
@@ -127,73 +91,112 @@ fn collapse_at_indent(lines: &[&str], threshold: usize) -> (String, usize) {
     (result, total_omitted)
 }
 
+/// Find the largest indent threshold such that collapsing lines with
+/// indent > threshold across all files keeps total chars <= max_chars.
+/// Returns the threshold, or None if even threshold=0 doesn't fit
+/// (in which case caller should fall back to head mode).
+pub fn find_nest_threshold(file_contents: &[&str], max_chars: usize) -> Option<usize> {
+    if file_contents.is_empty() {
+        return Some(usize::MAX);
+    }
+
+    // Collect all lines per file
+    let file_lines: Vec<Vec<&str>> = file_contents.iter().map(|c| c.lines().collect()).collect();
+
+    // Find the max indent across all files
+    let max_indent = file_lines
+        .iter()
+        .flat_map(|lines| lines.iter())
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| indent_level(l))
+        .max()
+        .unwrap_or(0);
+
+    // Try thresholds from high to low (high = less collapsing)
+    for threshold in (0..=max_indent).rev() {
+        let total: usize = file_lines
+            .iter()
+            .map(|lines| collapse_at_indent(lines, threshold).0.len())
+            .sum();
+        if total <= max_chars {
+            return Some(threshold);
+        }
+    }
+
+    // Even threshold=0 doesn't fit
+    None
+}
+
+fn indent_level(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_truncate_head_no_truncation() {
+    fn test_truncate_head_lines_no_truncation() {
         let content = "line1\nline2\nline3";
-        let (result, omitted) = truncate_head(content, 100);
+        let (result, omitted) = truncate_head_lines(content, 10);
         assert_eq!(result, content);
         assert_eq!(omitted, 0);
     }
 
     #[test]
-    fn test_truncate_head_truncates() {
+    fn test_truncate_head_lines_truncates() {
         let content = "line1\nline2\nline3\nline4";
-        // "line1\nline2" = 11 chars
-        let (result, omitted) = truncate_head(content, 11);
+        let (result, omitted) = truncate_head_lines(content, 2);
         assert_eq!(result, "line1\nline2");
         assert_eq!(omitted, 2);
     }
 
     #[test]
-    fn test_truncate_head_single_long_line() {
-        let content = "a".repeat(100);
-        let (result, omitted) = truncate_head(&content, 50);
-        // First line is already 100 chars but it's the first line, so it's kept
-        assert_eq!(result, content);
-        assert_eq!(omitted, 0);
+    fn test_truncate_head_lines_zero() {
+        let content = "line1\nline2";
+        let (result, omitted) = truncate_head_lines(content, 0);
+        assert_eq!(result, "");
+        assert_eq!(omitted, 2);
     }
 
     #[test]
-    fn test_truncate_nest_no_truncation() {
-        let content = "fn main() {\n    println!(\"hello\");\n}";
-        let (result, omitted) = truncate_nest(content, 1000);
-        assert_eq!(result, content);
-        assert_eq!(omitted, 0);
+    fn test_find_head_n_all_fit() {
+        let files = vec!["aaa\nbbb", "ccc"];
+        let n = find_head_n(&files, 1000);
+        assert_eq!(n, 2); // max lines across files
     }
 
     #[test]
-    fn test_truncate_nest_collapses_deep_indent() {
-        let content = "fn main() {\n    if true {\n        deeply_nested();\n        more_nested();\n    }\n}";
-        // With a tight budget, deeply indented lines should collapse
-        let (result, omitted) = truncate_nest(content, 60);
-        assert!(result.contains("... ("));
-        assert!(omitted > 0);
+    fn test_find_head_n_needs_truncation() {
+        // file1: "aaaa\nbbbb\ncccc" (each line 4 chars)
+        // file2: "dddd\neeee\nffff"
+        // n=3 => 14+14=28, n=2 => 9+9=18, n=1 => 4+4=8
+        let files = vec!["aaaa\nbbbb\ncccc", "dddd\neeee\nffff"];
+        let n = find_head_n(&files, 20);
+        assert_eq!(n, 2); // n=2 => 18 <= 20, n=3 => 28 > 20
     }
 
     #[test]
-    fn test_allocate_budget_proportional() {
-        let sizes = vec![100, 200, 300];
-        let budgets = allocate_budget(&sizes, 60);
-        // Proportional: 10, 20, 30
-        assert_eq!(budgets.iter().sum::<usize>(), 60);
+    fn test_find_head_n_uniform() {
+        // All files get the same n
+        let files = vec!["a\nb\nc\nd", "e\nf\ng\nh"];
+        let n = find_head_n(&files, 6);
+        // n=2 => "a\nb"(3) + "e\nf"(3) = 6 <= 6
+        assert_eq!(n, 2);
+
+        // Verify both files are truncated to the same number of lines
+        let (r1, o1) = truncate_head_lines(files[0], n);
+        let (r2, o2) = truncate_head_lines(files[1], n);
+        assert_eq!(r1, "a\nb");
+        assert_eq!(r2, "e\nf");
+        assert_eq!(o1, 2);
+        assert_eq!(o2, 2);
     }
 
     #[test]
-    fn test_allocate_budget_no_truncation_needed() {
-        let sizes = vec![10, 20, 30];
-        let budgets = allocate_budget(&sizes, 100);
-        assert_eq!(budgets, vec![10, 20, 30]);
-    }
-
-    #[test]
-    fn test_allocate_budget_empty() {
-        let sizes: Vec<usize> = vec![];
-        let budgets = allocate_budget(&sizes, 100);
-        assert!(budgets.is_empty());
+    fn test_find_head_n_empty() {
+        let files: Vec<&str> = vec![];
+        assert_eq!(find_head_n(&files, 100), 0);
     }
 
     #[test]
@@ -204,5 +207,43 @@ mod tests {
         assert!(result.contains("... (2 lines)"));
         assert!(result.contains("}"));
         assert_eq!(omitted, 2);
+    }
+
+    #[test]
+    fn test_find_nest_threshold_all_fit() {
+        let files = vec!["fn main() {\n    hello();\n}"];
+        let threshold = find_nest_threshold(&files, 1000);
+        // Max indent is 4, so threshold should be >= max indent (everything kept)
+        assert!(threshold.is_some());
+        assert!(threshold.unwrap() >= 4);
+    }
+
+    #[test]
+    fn test_find_nest_threshold_needs_collapsing() {
+        let file1 = "fn a() {\n    if x {\n        deep1();\n        deep2();\n    }\n}";
+        let file2 = "fn b() {\n    if y {\n        deep3();\n        deep4();\n    }\n}";
+        let files = vec![file1, file2];
+
+        // Find threshold with tight budget
+        let threshold = find_nest_threshold(&files, 80);
+        assert!(threshold.is_some());
+        let t = threshold.unwrap();
+
+        // Both files should be collapsed at the same threshold
+        let lines1: Vec<&str> = file1.lines().collect();
+        let lines2: Vec<&str> = file2.lines().collect();
+        let (_, o1) = collapse_at_indent(&lines1, t);
+        let (_, o2) = collapse_at_indent(&lines2, t);
+        // Same threshold means symmetric collapsing for symmetric files
+        assert_eq!(o1, o2);
+    }
+
+    #[test]
+    fn test_find_nest_threshold_fallback() {
+        // Even with threshold=0, content is too large
+        let big = "a".repeat(1000);
+        let files = vec![big.as_str()];
+        let threshold = find_nest_threshold(&files, 10);
+        assert!(threshold.is_none());
     }
 }
