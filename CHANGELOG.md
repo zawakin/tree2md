@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-02-25
+
+### Breaking Changes
+- **Removed HTML and Markdown renderers** — Removed `src/render/html.rs`, `src/render/markdown.rs`, `src/output/html_tree.rs`, `src/output/links.rs`
+- **Removed injection and stamp modules** — `src/injection/`, `src/stamp/`
+- **Removed CLI options**: `--output`, `--preset`, `--fold`, `--links`, `--github`, `--inject`, `--tag-start`, `--tag-end`, `--dry-run`, `--restrict-root`, `--stamp*`, `--no-stats`, and related enums
+
+### Added
+- **Agent-optimized output modes** with auto-detection:
+  - TTY: pretty output with emoji, LOC bars, stats, tree characters
+  - Pipe: plain tree + line counts — ideal for `pbcopy`/LLM pipes
+  - Pipe + `-c`: tree + code-fenced file contents for full AI context
+- **`--max-chars` content truncation** — limits total content characters when using `-c`, with proportional budget allocation across files
+  - `head` mode (default): keeps first N chars at line boundaries
+  - `nest` mode: progressively collapses deeply-indented blocks
+- `src/render/pipe.rs` — PipeRenderer with tree chars and optional contents
+- SIGPIPE handling on Unix to avoid panics when piping to `head`/`less`
+
+### Changed
+- Pivoted from multi-format document tool to agent-optimized codebase viewer
+
 ## [0.8.1] - 2025-09-03
 ### Documentation
 - Enhanced README with improved above-the-fold section
@@ -295,7 +316,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/zawakin/tree2md/compare/v0.8.2...v0.9.0
+[0.8.2]: https://github.com/zawakin/tree2md/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/zawakin/tree2md/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/zawakin/tree2md/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/zawakin/tree2md/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/zawakin/tree2md/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/zawakin/tree2md/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/zawakin/tree2md/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/zawakin/tree2md/compare/v0.3.2...v0.4.0
