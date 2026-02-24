@@ -6,10 +6,8 @@ use crate::profile::{EmojiMapper, FileType};
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 pub enum OutputFormat {
-    /// HTML with <details> tags
-    Html,
-    /// Pure Markdown with bullet lists
-    Markdown,
+    /// Pipe output with plain tree characters
+    Pipe,
     /// Terminal with Unicode tree branches
     Terminal,
 }
@@ -20,20 +18,16 @@ pub struct RenderConfig {
     pub format: OutputFormat,
     pub use_emoji: bool,
     pub use_colors: bool,
-    pub use_links: bool,
     pub show_stats: bool,
-    pub fold_directories: bool,
 }
 
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
-            format: OutputFormat::Html,
+            format: OutputFormat::Pipe,
             use_emoji: false,
             use_colors: false,
-            use_links: true,
             show_stats: true,
-            fold_directories: true,
         }
     }
 }

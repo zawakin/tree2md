@@ -4,12 +4,14 @@
 - All changes must go through PRs via `/git-workflow` — never commit directly to main
 
 ## Development
+
+- Verify all: `mise run verify`
+- Auto-fix: `mise run fix`
 - Unit Test: `cargo test`
-- Tests with Integration Test: `cargo test --test '*'`
+- Integration Test: `cargo test --test '*'`
 - Build: `cargo build`
-- Format: `cargo fmt`
-- Lint: `cargo clippy -- -D warnings`
 
 ## Rules
+
 - Think steps. Implement step by step not generating all at once.
 - For debugging, use integration tests in `tests/` instead of using `/tmp` directory in bash command and use `tests/*.rs` as integration tests. Read some tests to understand.

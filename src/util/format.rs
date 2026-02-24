@@ -142,50 +142,6 @@ pub fn is_global_outlier(loc: usize, threshold: usize) -> bool {
     loc >= threshold
 }
 
-/// Information about file truncation
-#[derive(Debug)]
-pub struct TruncationInfo {
-    pub truncated: bool,
-    pub total_lines: usize,
-    pub total_bytes: usize,
-    pub shown_lines: usize,
-    pub shown_bytes: usize,
-    pub truncate_type: TruncateType,
-}
-
-#[derive(Debug)]
-pub enum TruncateType {
-    None,
-    Bytes,
-    Lines,
-    Both,
-}
-
-/// Generate a message describing how content was truncated
-pub fn generate_truncation_message(info: &TruncationInfo) -> String {
-    match info.truncate_type {
-        TruncateType::Lines => {
-            format!(
-                "[Content truncated: showing first {} of {} lines]",
-                info.shown_lines, info.total_lines
-            )
-        }
-        TruncateType::Bytes => {
-            format!(
-                "[Content truncated: showing first {} of {} bytes]",
-                info.shown_bytes, info.total_bytes
-            )
-        }
-        TruncateType::Both => {
-            format!(
-                "[Content truncated: showing first {} of {} lines, {} of {} bytes]",
-                info.shown_lines, info.total_lines, info.shown_bytes, info.total_bytes
-            )
-        }
-        TruncateType::None => "[Content truncated]".to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,34 +188,5 @@ mod tests {
         assert_eq!(format_loc_display(999), "999");
         assert_eq!(format_loc_display(1000), "1k+");
         assert_eq!(format_loc_display(5000), "1k+");
-    }
-
-    #[test]
-    fn test_generate_truncation_message() {
-        let info = TruncationInfo {
-            truncated: true,
-            total_lines: 100,
-            total_bytes: 5000,
-            shown_lines: 50,
-            shown_bytes: 2500,
-            truncate_type: TruncateType::Lines,
-        };
-        assert_eq!(
-            generate_truncation_message(&info),
-            "[Content truncated: showing first 50 of 100 lines]"
-        );
-
-        let info = TruncationInfo {
-            truncated: true,
-            total_lines: 100,
-            total_bytes: 5000,
-            shown_lines: 50,
-            shown_bytes: 2500,
-            truncate_type: TruncateType::Both,
-        };
-        assert_eq!(
-            generate_truncation_message(&info),
-            "[Content truncated: showing first 50 of 100 lines, 2500 of 5000 bytes]"
-        );
     }
 }

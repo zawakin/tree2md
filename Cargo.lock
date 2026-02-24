@@ -673,6 +673,7 @@ dependencies = [
  "glob",
  "globset",
  "ignore",
+ "libc",
  "once_cell",
  "pathdiff",
  "predicates",
