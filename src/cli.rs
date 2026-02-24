@@ -42,6 +42,14 @@ pub enum LocMode {
     Accurate,
 }
 
+#[derive(Debug, Clone, PartialEq, ValueEnum)]
+pub enum ContentsMode {
+    /// Keep the first N characters per file (line-boundary cut)
+    Head,
+    /// Keep low-indentation lines, collapse deeply-indented blocks
+    Nest,
+}
+
 #[derive(Parser, Clone)]
 #[command(name = "tree2md")]
 #[command(version = VERSION)]
@@ -158,6 +166,24 @@ pub struct Args {
     /// Include file contents as code blocks (for AI context)
     #[arg(short = 'c', long = "contents")]
     pub contents: bool,
+
+    /// Limit total content characters (only with -c)
+    #[arg(
+        long = "max-chars",
+        value_name = "N",
+        requires = "contents",
+        help_heading = "Contents"
+    )]
+    pub max_chars: Option<usize>,
+
+    /// Content extraction strategy when --max-chars is set
+    #[arg(
+        long = "contents-mode",
+        value_enum,
+        default_value = "head",
+        help_heading = "Contents"
+    )]
+    pub contents_mode: ContentsMode,
 
     // ==================== Safety & Security ====================
     /// Apply safety filters (enabled by default)
