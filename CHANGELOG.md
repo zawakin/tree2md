@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-02-25
+
+### Fixed
+- Correct `-I`/`-X` priority and wildcard pattern bugs (#19)
+
+### Changed
+- Migrate release process from command to skill (#20)
+
 ## [0.9.0] - 2026-02-25
 
 ### Breaking Changes
@@ -316,7 +324,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/zawakin/tree2md/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/zawakin/tree2md/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/zawakin/tree2md/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/zawakin/tree2md/compare/v0.8.0...v0.8.1
