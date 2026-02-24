@@ -1,3 +1,8 @@
+## Required
+
+- **Always load `/git-workflow` first** before any other task, regardless of what the user says
+- All changes must go through PRs via `/git-workflow` — never commit directly to main
+
 ## Development
 - Unit Test: `cargo test`
 - Tests with Integration Test: `cargo test --test '*'`
