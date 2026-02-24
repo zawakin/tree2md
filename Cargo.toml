@@ -11,6 +11,9 @@ readme = "README.md"
 keywords = ["markdown", "tree", "directory", "cli", "tool"]
 categories = ["command-line-utilities", "development-tools"]
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 dirs = "5.0"

@@ -19,7 +19,23 @@ use terminal::animation::AnimationRunner;
 use terminal::capabilities::TerminalCapabilities;
 use terminal::detect::TerminalDetector;
 
+/// Restore default SIGPIPE behavior (terminate on broken pipe).
+/// Rust sets SIG_IGN by default, which causes `print!` to panic
+/// when piping to programs like `head` or `less`.
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 fn main() -> io::Result<()> {
+    // Restore default SIGPIPE behavior so piping to head/less doesn't panic
+    reset_sigpipe();
+
     let args = Args::parse();
 
     // Determine display root
