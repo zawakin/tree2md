@@ -61,11 +61,13 @@ QUICK START:
   tree2md                          # Pretty tree in terminal (TTY)
   tree2md | pbcopy                 # Pipe-friendly tree for clipboard
   tree2md -c -I "*.rs" -L 2       # Tree + file contents for AI context
+  tree2md -c --max-chars 30000    # Fit contents within token budget
 
 OUTPUT MODES (auto-detected):
   TTY    Pretty output with emoji, LOC bars, stats, tree characters
   Pipe   Simple tree + line counts — ideal for pbcopy or LLM pipes
   -c     Tree + file contents (code-fenced) — full context for agents
+  -c --max-chars N   Truncate contents to fit within N characters
 
 FILTERING:
   -L N                 Limit depth to N levels
@@ -167,7 +169,7 @@ pub struct Args {
     #[arg(short = 'c', long = "contents")]
     pub contents: bool,
 
-    /// Limit total content characters (only with -c)
+    /// Limit total content to N characters — controls AI context budget (only with -c)
     #[arg(
         long = "max-chars",
         value_name = "N",
@@ -176,7 +178,7 @@ pub struct Args {
     )]
     pub max_chars: Option<usize>,
 
-    /// Content extraction strategy when --max-chars is set
+    /// Truncation strategy: head = first N lines, nest = collapse deep indentation (only with --max-chars)
     #[arg(
         long = "contents-mode",
         value_enum,

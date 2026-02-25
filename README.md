@@ -9,6 +9,7 @@
 tree2md                        # Pretty tree in terminal
 tree2md | pbcopy               # Pipe-friendly tree for clipboard
 tree2md -c -I "*.rs" -L 2     # Tree + file contents for AI context
+tree2md -c --max-chars 30000   # Fit contents within token budget
 ```
 
 ---
@@ -108,6 +109,8 @@ cargo install --path .
 | Flag | Description |
 |------|-------------|
 | `-c, --contents` | Append file contents as code blocks |
+| `--max-chars <N>` | Limit total content to N characters (requires `-c`) |
+| `--contents-mode {head\|nest}` | Truncation strategy (default: `head`) |
 
 ### Statistics
 
@@ -158,6 +161,12 @@ tree2md . -L 3 | pbcopy
 
 ```bash
 tree2md . -c -I "*.rs" -I "*.toml" | pbcopy
+```
+
+**Fit contents within token budget**
+
+```bash
+tree2md . -c --max-chars 30000 | pbcopy
 ```
 
 **Quick project overview**
