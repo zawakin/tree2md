@@ -64,6 +64,7 @@ pub fn build_tree_with_spec(
         // Build a map of paths to nodes for efficient tree construction
         let mut nodes_map: HashMap<PathBuf, Node> = HashMap::new();
         let mut pruned_dirs: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        let mut has_nested_repo_pruning = false;
 
         for entry in walker.build() {
             let entry = match entry {
@@ -102,6 +103,17 @@ pub fn build_tree_with_spec(
                 Ok(m) => m,
                 Err(_) => continue,
             };
+
+            // Prune nested git repositories / worktrees / submodules.
+            // If a subdirectory contains a `.git` entry (file or directory),
+            // it represents a separate repository boundary and should not be
+            // traversed. This prevents worktrees, submodules, and nested repos
+            // from leaking into the output.
+            if entry_metadata.is_dir() && entry_path.join(".git").exists() {
+                pruned_dirs.insert(entry_path.to_path_buf());
+                has_nested_repo_pruning = true;
+                continue;
+            }
 
             // Create RelPath for matching
             let rel_path = match RelPath::from_root_rel(entry_path, root_path) {
@@ -151,9 +163,10 @@ pub fn build_tree_with_spec(
         // Build the tree structure from the flat map
         build_tree_from_map(&mut root_node, &nodes_map, path_buf)?;
 
-        // PruneDir prevents descending into directories but doesn't remove them from output.
-        // When include rules filter out all files in a directory, we need to clean up empty dirs.
-        if spec.has_includes() {
+        // Remove directories left empty after pruning (include filtering,
+        // nested-repo detection, etc.). Not run unconditionally because
+        // empty dirs at --level boundary should remain visible.
+        if spec.has_includes() || has_nested_repo_pruning {
             remove_empty_directories(&mut root_node);
         }
     }
