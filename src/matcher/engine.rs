@@ -135,6 +135,13 @@ impl MatcherEngine {
                 }
             }
 
+            // .git/info/exclude: per-repo exclude patterns (standard git mechanism)
+            let git_info_exclude = root.join(".git/info/exclude");
+            if git_info_exclude.exists() {
+                root_builder.add(git_info_exclude);
+                has_root_patterns = true;
+            }
+
             // Global gitignore: ~/.config/git/ignore (Git 2.20+), fallback ~/.gitignore
             if let Some(home) = dirs::home_dir() {
                 let xdg_gitignore = home.join(".config/git/ignore");
