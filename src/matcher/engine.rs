@@ -5,6 +5,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::collections::HashSet;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 
 /// Selection decision for a path
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,8 +32,10 @@ pub struct MatcherEngine {
     /// Compiled exclude glob patterns
     exclude_globset: Option<GlobSet>,
 
-    /// Gitignore rules if enabled
-    gitignore: Option<Gitignore>,
+    /// Gitignore rules: list of (scope_dir relative to root, compiled gitignore).
+    /// Each entry applies only to paths under its scope directory.
+    /// A scope of "" means root-level (applies to everything).
+    gitignore_layers: Vec<(String, Gitignore)>,
 
     /// Safety preset for excluding sensitive files
     safety_preset: Option<SafetyPreset>,
@@ -104,18 +107,27 @@ impl MatcherEngine {
             None
         };
 
-        // Build gitignore if needed
-        let gitignore = if spec.respect_gitignore {
-            let mut builder = GitignoreBuilder::new(root);
+        // Build gitignore layers if needed.
+        // Each .gitignore file becomes a separate layer with its own scope,
+        // because the `ignore` crate's Gitignore::matched() does not enforce
+        // directory scoping on its own.
+        let gitignore_layers = if spec.respect_gitignore {
+            let mut layers: Vec<(String, Gitignore)> = Vec::new();
 
-            // Add .gitignore from the root and parent directories
+            // Root-level layer: collects patterns from root/.gitignore,
+            // parent directories, and global gitignore.
+            // These all apply to everything (scope = "").
+            let mut root_builder = GitignoreBuilder::new(root);
+            let mut has_root_patterns = false;
+
+            // Walk upward from root to collect ancestor .gitignore files
             let mut current = root;
             loop {
                 let gitignore_path = current.join(".gitignore");
                 if gitignore_path.exists() {
-                    builder.add(gitignore_path);
+                    root_builder.add(gitignore_path);
+                    has_root_patterns = true;
                 }
-
                 if let Some(parent) = current.parent() {
                     current = parent;
                 } else {
@@ -123,22 +135,52 @@ impl MatcherEngine {
                 }
             }
 
-            // Also check for global gitignore
+            // Global gitignore: ~/.config/git/ignore (Git 2.20+), fallback ~/.gitignore
             if let Some(home) = dirs::home_dir() {
-                let global_gitignore = home.join(".gitignore");
-                if global_gitignore.exists() {
-                    builder.add(global_gitignore);
+                let xdg_gitignore = home.join(".config/git/ignore");
+                let legacy_gitignore = home.join(".gitignore");
+                if xdg_gitignore.exists() {
+                    root_builder.add(xdg_gitignore);
+                    has_root_patterns = true;
+                } else if legacy_gitignore.exists() {
+                    root_builder.add(legacy_gitignore);
+                    has_root_patterns = true;
                 }
             }
 
-            Some(builder.build().map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("Failed to build gitignore: {}", e),
-                )
-            })?)
+            if has_root_patterns {
+                let gi = root_builder.build().map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("Failed to build root gitignore: {}", e),
+                    )
+                })?;
+                layers.push((String::new(), gi));
+            }
+
+            // Nested layers: each subdirectory .gitignore gets its own Gitignore
+            for gitignore_path in Self::collect_nested_gitignores(root) {
+                let dir = gitignore_path.parent().unwrap();
+                let scope = dir
+                    .strip_prefix(root)
+                    .unwrap_or(Path::new(""))
+                    .to_string_lossy()
+                    .replace('\\', "/");
+
+                let mut builder = GitignoreBuilder::new(dir);
+                builder.add(&gitignore_path);
+                let gi = builder.build().map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("Failed to build gitignore for {}: {}", scope, e),
+                    )
+                })?;
+                layers.push((scope, gi));
+            }
+
+            layers
         } else {
-            None
+            Vec::new()
         };
 
         // Create safety preset if enabled
@@ -153,7 +195,7 @@ impl MatcherEngine {
             include_glob: spec.include_glob.clone(),
             include_globset,
             exclude_globset,
-            gitignore,
+            gitignore_layers,
             safety_preset,
             has_includes: spec.has_includes(),
             case_sensitive: spec.case_sensitive,
@@ -199,11 +241,9 @@ impl MatcherEngine {
             return Selection::Include;
         }
 
-        // Priority 5: Gitignore rules
-        if let Some(ref gitignore) = self.gitignore {
-            if gitignore.matched(rel_path.to_path_buf(), false).is_ignore() {
-                return Selection::Exclude;
-            }
+        // Priority 5: Gitignore rules (check each scoped layer)
+        if self.matches_gitignore(&path_str, rel_path, false) {
+            return Selection::Exclude;
         }
 
         // Priority 6: Safety preset
@@ -246,12 +286,9 @@ impl MatcherEngine {
             }
         }
 
-        // Gitignore for directories
-        if let Some(ref gitignore) = self.gitignore {
-            let path_buf = rel_path.to_path_buf();
-            if gitignore.matched(&path_buf, true).is_ignore() {
-                return Selection::PruneDir;
-            }
+        // Gitignore for directories (check each scoped layer)
+        if self.matches_gitignore(&path_str, rel_path, true) {
+            return Selection::PruneDir;
         }
 
         // Safety preset for directories
@@ -263,6 +300,30 @@ impl MatcherEngine {
 
         // Don't prune directories by default - we need to check their contents
         Selection::Include
+    }
+
+    /// Check if a path matches any gitignore layer, respecting directory scoping.
+    /// Each layer has a scope (relative dir prefix). A layer only applies to
+    /// paths under its scope. Scope "" means root (applies to everything).
+    fn matches_gitignore(&self, path_str: &str, rel_path: &RelPath, is_dir: bool) -> bool {
+        for (scope, gitignore) in &self.gitignore_layers {
+            // Check if path is under this layer's scope
+            if !scope.is_empty() && !path_str.starts_with(&format!("{}/", scope)) {
+                continue;
+            }
+
+            // For scoped layers, match against the path relative to the scope dir
+            let match_path = if scope.is_empty() {
+                rel_path.to_path_buf()
+            } else {
+                PathBuf::from(&path_str[scope.len() + 1..])
+            };
+
+            if gitignore.matched(&match_path, is_dir).is_ignore() {
+                return true;
+            }
+        }
+        false
     }
 
     /// Check if a path matches any include rules
@@ -318,6 +379,45 @@ impl MatcherEngine {
             }
         }
         false
+    }
+
+    /// Recursively collect `.gitignore` files from subdirectories of root.
+    /// The root's own `.gitignore` is excluded (already handled by the upward walk).
+    fn collect_nested_gitignores(root: &Path) -> Vec<PathBuf> {
+        let mut result = Vec::new();
+        let mut stack = Vec::new();
+
+        // Seed with direct children of root
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                    // Skip .git directory itself
+                    if entry.file_name() == ".git" {
+                        continue;
+                    }
+                    stack.push(entry.path());
+                }
+            }
+        }
+
+        while let Some(dir) = stack.pop() {
+            let gitignore_path = dir.join(".gitignore");
+            if gitignore_path.exists() {
+                result.push(gitignore_path);
+            }
+
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
+                        && entry.file_name() != ".git"
+                    {
+                        stack.push(entry.path());
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     /// Check if a directory potentially contains files that match include rules.
@@ -446,6 +546,35 @@ mod tests {
         // exclude narrows include, so it should be excluded
         let test_rs = RelPath::from_relative("test/test_main.rs");
         assert_eq!(engine.select_file(&test_rs), Selection::Exclude);
+    }
+
+    #[test]
+    fn test_nested_gitignore_scoping() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        // Create nested .gitignore: a/b/c/.gitignore with *.tmp
+        std::fs::create_dir_all(root.join("a/b/c")).unwrap();
+        std::fs::write(root.join("a/b/c/.gitignore"), "*.tmp\n").unwrap();
+
+        let spec = MatchSpec::new().with_gitignore(true);
+        let engine = MatcherEngine::compile(&spec, root).unwrap();
+
+        // a/b/keep.tmp should NOT be excluded (not under a/b/c/)
+        let keep = RelPath::from_relative("a/b/keep.tmp");
+        assert_eq!(
+            engine.select_file(&keep),
+            Selection::Include,
+            "a/b/keep.tmp should not be affected by a/b/c/.gitignore"
+        );
+
+        // a/b/c/remove.tmp SHOULD be excluded
+        let remove = RelPath::from_relative("a/b/c/remove.tmp");
+        assert_eq!(
+            engine.select_file(&remove),
+            Selection::Exclude,
+            "a/b/c/remove.tmp should be excluded by a/b/c/.gitignore"
+        );
     }
 
     #[test]

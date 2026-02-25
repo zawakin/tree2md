@@ -88,8 +88,9 @@ impl MatchSpec {
             crate::cli::UseGitignoreMode::Always => true,
             crate::cli::UseGitignoreMode::Never => false,
             crate::cli::UseGitignoreMode::Auto => {
-                // In auto mode, respect gitignore if .git exists in the target directory
-                target_path.join(".git").exists()
+                // In auto mode, respect gitignore if .git exists in the target
+                // directory or any of its ancestors
+                Self::is_inside_git_repo(target_path)
             }
         };
 
@@ -101,6 +102,20 @@ impl MatchSpec {
             use_safety_preset: args.is_safe_mode(),
             case_sensitive: true, // Could be extended with --ignore-case flag
             _keep_dirs_until_pruned: true,
+        }
+    }
+
+    /// Check if a path is inside a git repository by walking up to find `.git`.
+    fn is_inside_git_repo(path: &std::path::Path) -> bool {
+        let mut current = path;
+        loop {
+            if current.join(".git").exists() {
+                return true;
+            }
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => return false,
+            }
         }
     }
 
