@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-02-25
+
+### Fixed
+- Support nested `.gitignore` files in subdirectories — previously only root-level `.gitignore` was respected (#22)
+- Auto-detection now walks up parent directories to find `.git`, so `tree2md src/` inside a repo correctly respects `.gitignore`
+- Check `~/.config/git/ignore` (Git 2.20+ default) before legacy `~/.gitignore` for global gitignore
+
 ## [0.9.1] - 2026-02-25
 
 ### Fixed
@@ -324,7 +331,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/zawakin/tree2md/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/zawakin/tree2md/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/zawakin/tree2md/compare/v0.8.2...v0.9.0
 [0.8.2]: https://github.com/zawakin/tree2md/compare/v0.8.1...v0.8.2
