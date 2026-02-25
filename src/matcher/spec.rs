@@ -50,6 +50,10 @@ impl MatchSpec {
     /// For example: "*.rs" becomes "**/*.rs" to match files at any depth
     /// For directory names like "specs", it becomes "**/{name}/**" to match at any depth (like .gitignore)
     fn normalize_pattern(pattern: &str) -> String {
+        // Trailing "/" just means "this is a directory" — strip it before normalization
+        // so that "hoge/" and "hoge" behave identically
+        let pattern = pattern.strip_suffix('/').unwrap_or(pattern);
+
         if !pattern.contains('/') {
             // Check if this looks like a directory name (no wildcards or extensions)
             if !pattern.contains('*') && !pattern.contains('.') {
@@ -230,7 +234,7 @@ mod tests {
         ]);
 
         assert_eq!(spec.exclude_glob[0], "**/*.tmp");
-        assert_eq!(spec.exclude_glob[1], "build/");
+        assert_eq!(spec.exclude_glob[1], "**/build/**");
 
         // Test directory name normalization: bare names become **/{name}/**
         let spec = MatchSpec::new().with_exclude_glob(vec![
@@ -240,5 +244,30 @@ mod tests {
 
         assert_eq!(spec.exclude_glob[0], "**/__tests__/**");
         assert_eq!(spec.exclude_glob[1], "**/vendor/**");
+    }
+
+    #[test]
+    fn test_trailing_slash_normalization() {
+        // "hoge/" and "hoge" should normalize to the same pattern
+        let spec_no_slash = MatchSpec::new().with_exclude_glob(vec!["hoge".to_string()]);
+        let spec_with_slash = MatchSpec::new().with_exclude_glob(vec!["hoge/".to_string()]);
+        assert_eq!(
+            spec_no_slash.exclude_glob[0],
+            spec_with_slash.exclude_glob[0]
+        );
+        assert_eq!(spec_with_slash.exclude_glob[0], "**/hoge/**");
+
+        // Same for include
+        let spec_no_slash = MatchSpec::new().with_include_glob(vec!["src".to_string()]);
+        let spec_with_slash = MatchSpec::new().with_include_glob(vec!["src/".to_string()]);
+        assert_eq!(
+            spec_no_slash.include_glob[0],
+            spec_with_slash.include_glob[0]
+        );
+        assert_eq!(spec_with_slash.include_glob[0], "**/src/**");
+
+        // Trailing slash on path patterns: "src/lib/" → "src/lib" (kept as-is after strip)
+        let spec = MatchSpec::new().with_exclude_glob(vec!["src/lib/".to_string()]);
+        assert_eq!(spec.exclude_glob[0], "src/lib");
     }
 }
