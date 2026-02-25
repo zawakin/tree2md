@@ -258,25 +258,53 @@ impl MatcherEngine {
     }
 
     /// Select whether to include, exclude, or prune a directory
+    ///
+    /// Priority order:
+    /// 1. .git → always prune
+    /// 2. Gitignore → always prune (like rg/fd: gitignored dirs are never traversed)
+    /// 3. Safety preset → always prune
+    /// 4. Include patterns may keep dir alive (prevents -X from pruning)
+    /// 5. Exclude patterns (-X) → prune
+    /// 6. Default → include
     pub fn select_dir(&self, rel_path: &RelPath) -> Selection {
         let path_str = rel_path.as_match_str();
 
-        // Always exclude .git directory
+        // Priority 1: Always exclude .git directory
         if path_str == ".git" || path_str.starts_with(".git/") {
             return Selection::PruneDir;
         }
 
-        // Check if this directory might contain files matching include patterns.
-        // If so, we must NOT prune it even if it matches an exclude pattern,
-        // because files inside need to be individually evaluated.
-        let may_contain_includes = self.dir_may_contain_includes(&path_str);
+        // Priority 2: Path-specific includes override gitignore/safety.
+        // e.g., `-I vendor/**/*.py` explicitly targets vendor/, so we must
+        // not prune it even if gitignore or safety would normally do so.
+        if self.dir_may_contain_path_specific_includes(&path_str) {
+            return Selection::Include;
+        }
 
-        // If the directory itself matches include rules, keep it
+        // Priority 3: Gitignore always prunes directories.
+        // Like rg/fd, gitignored directories are never traversed regardless
+        // of generic include patterns. Users can opt out with --use-gitignore=never.
+        if self.matches_gitignore(&path_str, rel_path, true) {
+            return Selection::PruneDir;
+        }
+
+        // Priority 4: Safety preset always prunes directories.
+        // Users can opt out with --unsafe.
+        if let Some(ref safety) = self.safety_preset {
+            if safety.matches(path_str.as_ref()) || safety.matches(&format!("{}/", path_str)) {
+                return Selection::PruneDir;
+            }
+        }
+
+        // Priority 5: Check if this directory might contain files matching
+        // any include patterns (including generic ones like `**/src/**`).
+        // This prevents `-X` from pruning directories that might have matches.
+        let may_contain_includes = self.dir_may_contain_includes(&path_str);
         if self.matches_include_rules(&path_str, rel_path) || may_contain_includes {
             return Selection::Include;
         }
 
-        // Exclude patterns (only prune if directory doesn't potentially contain included files)
+        // Priority 6: Exclude patterns (-X)
         if let Some(ref exclude_globset) = self.exclude_globset {
             // For directory matching, try both with and without trailing slash
             if exclude_globset.is_match(path_str.as_ref())
@@ -286,19 +314,7 @@ impl MatcherEngine {
             }
         }
 
-        // Gitignore for directories (check each scoped layer)
-        if self.matches_gitignore(&path_str, rel_path, true) {
-            return Selection::PruneDir;
-        }
-
-        // Safety preset for directories
-        if let Some(ref safety) = self.safety_preset {
-            if safety.matches(path_str.as_ref()) || safety.matches(&format!("{}/", path_str)) {
-                return Selection::PruneDir;
-            }
-        }
-
-        // Don't prune directories by default - we need to check their contents
+        // Default: don't prune directories - we need to check their contents
         Selection::Include
     }
 
@@ -420,12 +436,48 @@ impl MatcherEngine {
         result
     }
 
-    /// Check if a directory potentially contains files that match include rules.
+    /// Check if a directory potentially contains files that match
+    /// path-specific include patterns (patterns that don't start with `**/`).
     ///
-    /// Uses pattern analysis rather than testing a single hardcoded filename:
-    /// - If pattern starts with `**/` → any directory could contain matches → true
-    /// - If pattern starts with `{dir_path}/` → direct prefix match → true
-    /// - If dir_path is a prefix of the pattern's static prefix (before first wildcard) → true
+    /// Path-specific patterns explicitly target directories (e.g., `vendor/**/*.py`)
+    /// and can override gitignore/safety pruning for those specific directories.
+    /// Generic patterns (`**/src/**`) cannot — they defer to gitignore/safety.
+    fn dir_may_contain_path_specific_includes(&self, path_str: &str) -> bool {
+        for pattern in &self.include_glob {
+            // Skip generic patterns — they don't override gitignore/safety
+            if pattern.starts_with("**/") {
+                continue;
+            }
+
+            // Check if the pattern targets files inside this directory
+            // e.g., pattern "vendor/**/*.py" and dir "vendor" or "vendor/lib1"
+            if pattern.starts_with(&format!("{}/", path_str)) {
+                return true;
+            }
+
+            // Check if this directory is on the path to the pattern's target
+            let static_prefix = if let Some(wildcard_pos) = pattern.find('*') {
+                &pattern[..wildcard_pos]
+            } else {
+                pattern.as_str()
+            };
+
+            if static_prefix.starts_with(&format!("{}/", path_str)) {
+                return true;
+            }
+
+            if !static_prefix.is_empty() && format!("{}/", path_str).starts_with(static_prefix) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if a directory potentially contains files that match any include rules
+    /// (both generic and path-specific).
+    ///
+    /// Used after gitignore/safety checks to prevent `-X` from pruning directories
+    /// that might contain included files.
     fn dir_may_contain_includes(&self, path_str: &str) -> bool {
         for pattern in &self.include_glob {
             // Patterns starting with **/ can match files in any directory
