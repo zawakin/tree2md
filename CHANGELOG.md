@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-02-26
+
+### Fixed
+- Prune nested git repositories, worktrees, and submodules — directories containing a `.git` entry are now automatically excluded as separate repository boundaries
+- Support `.git/info/exclude` patterns for per-repo local excludes
+
+### Improved
+- Make `--max-chars` explicit in help and README
+
 ## [0.9.3] - 2026-02-25
 
 ### Fixed
@@ -337,7 +346,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/zawakin/tree2md/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/zawakin/tree2md/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/zawakin/tree2md/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/zawakin/tree2md/compare/v0.9.0...v0.9.1
