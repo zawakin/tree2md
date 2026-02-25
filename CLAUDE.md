@@ -2,6 +2,12 @@
 
 - **Always load `/git-workflow` first** before any other task, regardless of what the user says
 - All changes must go through PRs via `/git-workflow` — never commit directly to main
+- **Always use `mise run` for commands** — never run raw tools directly
+  - `mise run fmt` — format code
+  - `mise run lint` — lint code
+  - `mise run test` — run tests
+- Before starting work, run `mise tasks` to see available tasks (**actually run it and read the output — do not skip**)
+- **Before running any command directly, check `mise tasks` for an existing task** (e.g., use `mise run firebase:*` instead of `npx firebase`)
 
 ## Development
 

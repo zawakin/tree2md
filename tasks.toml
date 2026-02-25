@@ -1,3 +1,15 @@
+[fmt]
+description = "Format code"
+run = "cargo fmt"
+
+[lint]
+description = "Lint code"
+run = "cargo clippy -- -D warnings"
+
+[test]
+description = "Run tests"
+run = "cargo test --test '*'"
+
 [verify]
 description = "Run all checks: fmt, clippy, tests"
 run = """
