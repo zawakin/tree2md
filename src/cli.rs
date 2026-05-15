@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-pub const VERSION: &str = "0.9.2";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum UseGitignoreMode {

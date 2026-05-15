@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-05-16
+
+### Fixed
+- `-I` / `-X` patterns containing non-ASCII characters (e.g. Japanese directory names) silently matched nothing in v0.10.0. Both `fix_double_star` and `brace_expand` iterated over `bytes()` and re-encoded each UTF-8 continuation byte as its own `char`, garbling the pattern. Both now iterate by `char` and slice only at ASCII boundaries.
+- `tree2md --version` now reports the actual crate version. A stale hard-coded constant in `src/cli.rs` had been printing `0.9.2` regardless of the released version. The constant is now sourced from `CARGO_PKG_VERSION` so it stays in sync automatically.
+
 ## [0.10.0] - 2026-05-16
 
 ### Changed (breaking)

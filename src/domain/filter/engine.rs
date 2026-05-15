@@ -124,7 +124,7 @@ impl MatcherEngine {
     /// rule that "applies" to this directory. A rule applies if either:
     /// * It matches the directory path directly (typical for `-X build`), or
     /// * It could match files anywhere beneath this directory (typical for
-    ///   `-I projects/007/**` when D is `projects` or `projects/007/...`).
+    ///   `-I projects/alpha/**` when D is `projects` or `projects/alpha/...`).
     ///
     /// The final decision uses the kind of the last applicable rule. This
     /// keeps `-I A/** -X A/B` (prune the subtree) and `-X A -I A/B/**`
@@ -240,7 +240,7 @@ fn path_specific_include_targets_dir(pattern: &str, dir_path: &str) -> bool {
 /// "Relate" means either:
 /// * The pattern uses `**/` at the head, which makes it match anywhere, or
 /// * The pattern's static prefix is under `dir_path` (e.g. pattern
-///   `projects/007/**` relates to dir `projects`), or
+///   `projects/alpha/**` relates to dir `projects`), or
 /// * `dir_path` is under the pattern's static prefix (e.g. pattern
 ///   `vendor/**/*.py` relates to dir `vendor/lib1`).
 fn include_rule_relates_to_dir(pattern: &str, dir_path: &str) -> bool {
@@ -280,53 +280,45 @@ fn static_prefix_relates(pattern: &str, dir_path: &str) -> bool {
 fn brace_expand(pattern: &str) -> Vec<String> {
     let bytes = pattern.as_bytes();
     let n = bytes.len();
-    let mut results = vec![String::new()];
-    let mut i = 0;
-    while i < n {
-        if bytes[i] == b'{' {
-            // Find matching `}` accounting for nesting.
-            let mut depth = 1;
-            let mut j = i + 1;
-            while j < n {
-                match bytes[j] {
-                    b'{' => depth += 1,
-                    b'}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-                j += 1;
-            }
-            if depth != 0 {
-                // Unbalanced — give up and treat the rest as literal.
-                for s in &mut results {
-                    s.push_str(&pattern[i..]);
-                }
-                return results;
-            }
-            // Split top-level commas inside the braces.
-            let inside = &pattern[i + 1..j];
-            let alts = split_top_level_commas(inside);
-            let mut next = Vec::with_capacity(results.len() * alts.len());
-            for s in &results {
-                for alt in &alts {
-                    for expanded_alt in brace_expand(alt) {
-                        next.push(format!("{}{}", s, expanded_alt));
-                    }
+
+    // Find the first `{`. `{`, `}` and `,` are ASCII so byte-position scanning
+    // is safe even when the pattern contains multi-byte UTF-8 (e.g. Japanese
+    // directory names), and all `&pattern[..]` slices below cut at ASCII
+    // boundaries so they're valid str slices.
+    let i = match bytes.iter().position(|&b| b == b'{') {
+        Some(p) => p,
+        None => return vec![pattern.to_string()],
+    };
+
+    // Find the matching `}` accounting for nesting.
+    let mut depth = 1i32;
+    let mut j = i + 1;
+    while j < n {
+        match bytes[j] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
                 }
             }
-            results = next;
-            i = j + 1;
-        } else {
-            let ch = bytes[i] as char;
-            for s in &mut results {
-                s.push(ch);
-            }
-            i += 1;
+            _ => {}
         }
+        j += 1;
+    }
+    if depth != 0 {
+        // Unbalanced — give up and treat the pattern as literal.
+        return vec![pattern.to_string()];
+    }
+
+    let prefix = &pattern[..i];
+    let inside = &pattern[i + 1..j];
+    let suffix = &pattern[j + 1..];
+
+    let mut results = Vec::new();
+    for alt in split_top_level_commas(inside) {
+        let combined = format!("{}{}{}", prefix, alt, suffix);
+        results.extend(brace_expand(&combined));
     }
     results
 }
@@ -485,23 +477,23 @@ mod tests {
 
     #[test]
     fn last_wins_exclude_after_path_include_narrows_subtree() {
-        // The headline bug: -I projects/007/** -X build should prune build/.
+        // The headline bug: -I projects/alpha/** -X build should prune build/.
         let spec = MatchSpec::new().with_rules(vec![
-            rule(RuleKind::Include, "projects/007/**"),
+            rule(RuleKind::Include, "projects/alpha/**"),
             rule(RuleKind::Exclude, "build"),
         ]);
         let e = engine(spec);
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/index.ts")),
+            e.select_file(&RelPath::from_relative("projects/alpha/index.ts")),
             Selection::Include
         );
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/build/out.js")),
+            e.select_file(&RelPath::from_relative("projects/alpha/build/out.js")),
             Selection::Exclude,
             "exclude after include must narrow"
         );
         assert_eq!(
-            e.select_dir(&RelPath::from_relative("projects/007/build")),
+            e.select_dir(&RelPath::from_relative("projects/alpha/build")),
             Selection::PruneDir
         );
     }
@@ -532,30 +524,32 @@ mod tests {
     #[test]
     fn double_star_no_slash_is_fixed() {
         let spec = MatchSpec::new().with_rules(vec![
-            rule(RuleKind::Include, "projects/007/**"),
+            rule(RuleKind::Include, "projects/alpha/**"),
             rule(RuleKind::Exclude, "**.generated.json"),
         ]);
         let e = engine(spec);
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/index.ts")),
+            e.select_file(&RelPath::from_relative("projects/alpha/index.ts")),
             Selection::Include
         );
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/data.generated.json")),
+            e.select_file(&RelPath::from_relative(
+                "projects/alpha/data.generated.json"
+            )),
             Selection::Exclude
         );
     }
 
     #[test]
     fn directory_with_no_relevant_include_is_pruned() {
-        let spec = MatchSpec::new().with_include_glob(vec!["projects/007/**".into()]);
+        let spec = MatchSpec::new().with_include_glob(vec!["projects/alpha/**".into()]);
         let e = engine(spec);
         assert_eq!(
-            e.select_dir(&RelPath::from_relative("projects/008_other")),
+            e.select_dir(&RelPath::from_relative("projects/beta")),
             Selection::PruneDir
         );
         assert_eq!(
-            e.select_dir(&RelPath::from_relative("projects/007")),
+            e.select_dir(&RelPath::from_relative("projects/alpha")),
             Selection::Include
         );
         assert_eq!(

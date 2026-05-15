@@ -160,26 +160,33 @@ impl MatchSpec {
 /// pattern users intuitively write (`**.test.ts`) but globset treats as
 /// a single literal segment. We patch it at the segment boundary only —
 /// `**`, `**/`, `path/**`, `path/**/` are all left untouched.
+///
+/// Iterates over `chars()`, never `bytes()`, because patterns can contain
+/// multi-byte UTF-8 (e.g. Japanese directory names) and a byte-level scan
+/// would re-encode them as garbage.
 fn fix_double_star(pattern: &str) -> String {
-    let bytes = pattern.as_bytes();
-    let n = bytes.len();
-    let mut out = String::with_capacity(n + 4);
-    let mut i = 0;
-    while i < n {
-        let at_segment_start = i == 0 || bytes[i - 1] == b'/';
-        if at_segment_start
-            && i + 2 < n
-            && bytes[i] == b'*'
-            && bytes[i + 1] == b'*'
-            && bytes[i + 2] != b'/'
-            && bytes[i + 2] != b'*'
-        {
-            out.push_str("**/*");
-            i += 2;
+    let mut out = String::with_capacity(pattern.len() + 4);
+    let mut chars = pattern.chars().peekable();
+    let mut prev: Option<char> = None;
+    while let Some(c) = chars.next() {
+        let at_segment_start = prev.is_none() || prev == Some('/');
+        if at_segment_start && c == '*' && chars.peek() == Some(&'*') {
+            // Consume the second '*'.
+            chars.next();
+            match chars.peek() {
+                Some(&after) if after != '/' && after != '*' => {
+                    out.push_str("**/*");
+                }
+                _ => {
+                    out.push('*');
+                    out.push('*');
+                }
+            }
+            prev = Some('*');
             continue;
         }
-        out.push(bytes[i] as char);
-        i += 1;
+        out.push(c);
+        prev = Some(c);
     }
     out
 }
