@@ -1,6 +1,6 @@
 use super::node::Node;
 use crate::cli::Args;
-use crate::matcher::{MatchSpec, MatcherEngine, RelPath, Selection};
+use crate::domain::filter::{MatchSpec, MatcherEngine, RelPath, Selection};
 use crate::util::path::calculate_display_path;
 use ignore::WalkBuilder;
 use std::collections::HashMap;
@@ -239,7 +239,7 @@ fn remove_empty_directories(node: &mut Node) {
 mod tests {
     use super::*;
     use crate::cli::Args;
-    use crate::matcher::MatchSpec;
+    use crate::domain::filter::MatchSpec;
     use clap::Parser;
     use std::fs;
     use tempfile::TempDir;
@@ -264,7 +264,7 @@ mod tests {
         let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
 
         // Test with extension filter
-        let spec = MatchSpec::new().with_include_ext(vec![".rs".to_string()]);
+        let spec = MatchSpec::new().with_include_glob(vec!["*.rs".to_string()]);
 
         let display_root = root.to_path_buf();
         let tree = build_tree_with_spec(root.to_str().unwrap(), &args, &spec, root, &display_root)
