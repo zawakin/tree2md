@@ -124,7 +124,7 @@ impl MatcherEngine {
     /// rule that "applies" to this directory. A rule applies if either:
     /// * It matches the directory path directly (typical for `-X build`), or
     /// * It could match files anywhere beneath this directory (typical for
-    ///   `-I projects/007/**` when D is `projects` or `projects/007/...`).
+    ///   `-I projects/alpha/**` when D is `projects` or `projects/alpha/...`).
     ///
     /// The final decision uses the kind of the last applicable rule. This
     /// keeps `-I A/** -X A/B` (prune the subtree) and `-X A -I A/B/**`
@@ -240,7 +240,7 @@ fn path_specific_include_targets_dir(pattern: &str, dir_path: &str) -> bool {
 /// "Relate" means either:
 /// * The pattern uses `**/` at the head, which makes it match anywhere, or
 /// * The pattern's static prefix is under `dir_path` (e.g. pattern
-///   `projects/007/**` relates to dir `projects`), or
+///   `projects/alpha/**` relates to dir `projects`), or
 /// * `dir_path` is under the pattern's static prefix (e.g. pattern
 ///   `vendor/**/*.py` relates to dir `vendor/lib1`).
 fn include_rule_relates_to_dir(pattern: &str, dir_path: &str) -> bool {
@@ -477,23 +477,23 @@ mod tests {
 
     #[test]
     fn last_wins_exclude_after_path_include_narrows_subtree() {
-        // The headline bug: -I projects/007/** -X build should prune build/.
+        // The headline bug: -I projects/alpha/** -X build should prune build/.
         let spec = MatchSpec::new().with_rules(vec![
-            rule(RuleKind::Include, "projects/007/**"),
+            rule(RuleKind::Include, "projects/alpha/**"),
             rule(RuleKind::Exclude, "build"),
         ]);
         let e = engine(spec);
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/index.ts")),
+            e.select_file(&RelPath::from_relative("projects/alpha/index.ts")),
             Selection::Include
         );
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/build/out.js")),
+            e.select_file(&RelPath::from_relative("projects/alpha/build/out.js")),
             Selection::Exclude,
             "exclude after include must narrow"
         );
         assert_eq!(
-            e.select_dir(&RelPath::from_relative("projects/007/build")),
+            e.select_dir(&RelPath::from_relative("projects/alpha/build")),
             Selection::PruneDir
         );
     }
@@ -524,30 +524,32 @@ mod tests {
     #[test]
     fn double_star_no_slash_is_fixed() {
         let spec = MatchSpec::new().with_rules(vec![
-            rule(RuleKind::Include, "projects/007/**"),
+            rule(RuleKind::Include, "projects/alpha/**"),
             rule(RuleKind::Exclude, "**.generated.json"),
         ]);
         let e = engine(spec);
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/index.ts")),
+            e.select_file(&RelPath::from_relative("projects/alpha/index.ts")),
             Selection::Include
         );
         assert_eq!(
-            e.select_file(&RelPath::from_relative("projects/007/data.generated.json")),
+            e.select_file(&RelPath::from_relative(
+                "projects/alpha/data.generated.json"
+            )),
             Selection::Exclude
         );
     }
 
     #[test]
     fn directory_with_no_relevant_include_is_pruned() {
-        let spec = MatchSpec::new().with_include_glob(vec!["projects/007/**".into()]);
+        let spec = MatchSpec::new().with_include_glob(vec!["projects/alpha/**".into()]);
         let e = engine(spec);
         assert_eq!(
-            e.select_dir(&RelPath::from_relative("projects/008_other")),
+            e.select_dir(&RelPath::from_relative("projects/beta")),
             Selection::PruneDir
         );
         assert_eq!(
-            e.select_dir(&RelPath::from_relative("projects/007")),
+            e.select_dir(&RelPath::from_relative("projects/alpha")),
             Selection::Include
         );
         assert_eq!(
