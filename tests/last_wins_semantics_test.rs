@@ -137,6 +137,48 @@ fn brace_expansion_with_exclude() {
     assert!(!out.contains("foo.test.ts"));
 }
 
+/// Regression for v0.10.0: `fix_double_star` and `brace_expand` iterated
+/// over `bytes()` and re-encoded each UTF-8 continuation byte as its own
+/// `char`, garbling multi-byte directory names. The result was that
+/// `-I "projects/日本語/**"` silently matched nothing.
+#[test]
+fn utf8_path_pattern_matches() {
+    let (_t, root) = FixtureBuilder::new()
+        .file("projects/012_休むための会議/a.ts", "x")
+        .file("projects/012_休むための会議/b.ts", "x")
+        .file("projects/other/c.ts", "x")
+        .build();
+
+    let (out, _, ok) = run_tree2md([
+        p(&root),
+        "-I".into(),
+        "projects/012_休むための会議/**".into(),
+    ]);
+    assert!(ok);
+    assert!(out.contains("a.ts"), "a.ts should be included: {}", out);
+    assert!(out.contains("b.ts"));
+    assert!(!out.contains("c.ts"));
+}
+
+#[test]
+fn utf8_path_with_brace_pattern() {
+    let (_t, root) = FixtureBuilder::new()
+        .file("packages/休-domain/x.ts", "x")
+        .file("packages/休-engine/y.ts", "x")
+        .file("packages/other/z.ts", "x")
+        .build();
+
+    let (out, _, ok) = run_tree2md([
+        p(&root),
+        "-I".into(),
+        "packages/休-{domain,engine}/**".into(),
+    ]);
+    assert!(ok);
+    assert!(out.contains("x.ts"));
+    assert!(out.contains("y.ts"));
+    assert!(!out.contains("z.ts"));
+}
+
 #[test]
 fn include_subtree_prunes_unrelated_siblings() {
     let (_t, root) = user_like_fixture();

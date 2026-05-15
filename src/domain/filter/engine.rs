@@ -280,53 +280,45 @@ fn static_prefix_relates(pattern: &str, dir_path: &str) -> bool {
 fn brace_expand(pattern: &str) -> Vec<String> {
     let bytes = pattern.as_bytes();
     let n = bytes.len();
-    let mut results = vec![String::new()];
-    let mut i = 0;
-    while i < n {
-        if bytes[i] == b'{' {
-            // Find matching `}` accounting for nesting.
-            let mut depth = 1;
-            let mut j = i + 1;
-            while j < n {
-                match bytes[j] {
-                    b'{' => depth += 1,
-                    b'}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-                j += 1;
-            }
-            if depth != 0 {
-                // Unbalanced — give up and treat the rest as literal.
-                for s in &mut results {
-                    s.push_str(&pattern[i..]);
-                }
-                return results;
-            }
-            // Split top-level commas inside the braces.
-            let inside = &pattern[i + 1..j];
-            let alts = split_top_level_commas(inside);
-            let mut next = Vec::with_capacity(results.len() * alts.len());
-            for s in &results {
-                for alt in &alts {
-                    for expanded_alt in brace_expand(alt) {
-                        next.push(format!("{}{}", s, expanded_alt));
-                    }
+
+    // Find the first `{`. `{`, `}` and `,` are ASCII so byte-position scanning
+    // is safe even when the pattern contains multi-byte UTF-8 (e.g. Japanese
+    // directory names), and all `&pattern[..]` slices below cut at ASCII
+    // boundaries so they're valid str slices.
+    let i = match bytes.iter().position(|&b| b == b'{') {
+        Some(p) => p,
+        None => return vec![pattern.to_string()],
+    };
+
+    // Find the matching `}` accounting for nesting.
+    let mut depth = 1i32;
+    let mut j = i + 1;
+    while j < n {
+        match bytes[j] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
                 }
             }
-            results = next;
-            i = j + 1;
-        } else {
-            let ch = bytes[i] as char;
-            for s in &mut results {
-                s.push(ch);
-            }
-            i += 1;
+            _ => {}
         }
+        j += 1;
+    }
+    if depth != 0 {
+        // Unbalanced — give up and treat the pattern as literal.
+        return vec![pattern.to_string()];
+    }
+
+    let prefix = &pattern[..i];
+    let inside = &pattern[i + 1..j];
+    let suffix = &pattern[j + 1..];
+
+    let mut results = Vec::new();
+    for alt in split_top_level_commas(inside) {
+        let combined = format!("{}{}{}", prefix, alt, suffix);
+        results.extend(brace_expand(&combined));
     }
     results
 }
