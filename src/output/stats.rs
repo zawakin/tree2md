@@ -175,7 +175,7 @@ impl Stats {
 
             // Sort by count descending
             let mut types: Vec<_> = self.file_types.iter().collect();
-            types.sort_by(|a, b| b.1.count.cmp(&a.1.count));
+            types.sort_by_key(|b| std::cmp::Reverse(b.1.count));
 
             let chars = if use_unicode {
                 ProgressChars::unicode()

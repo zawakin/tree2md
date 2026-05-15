@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-16
+
+### Changed (breaking)
+- `-I` and `-X` are now evaluated in argv order with **last-match-wins** semantics. The previous rule "path-specific `-I` overrides `-X`" silently dropped excludes after an include and is removed. For example, `-I "projects/foo/**" -X build` now correctly prunes `projects/foo/build/`. To recreate the old "include carves out an excluded subtree" behaviour, write the carve-out after the exclude: `-X vendor -I "vendor/**/*.py"`.
+
+### Fixed
+- `**.ext` patterns (no slash before `**`) are now silently normalized to `**/*.ext`. Previously `-X **.test.ts` matched nothing and the user had to know the globset quirk.
+- `-X build` (and any bare `-X NAME`) now actually prunes the directory even when used together with a path-specific `-I` like `-I "projects/foo/**"`.
+- Brace patterns like `-I "packages/foo-{a,b}/**/*.ts"` correctly keep their ancestor directories alive for traversal.
+
+### Internal
+- Filter logic moved to `src/domain/filter/` and is now driven by a single ordered rule list (`FilterRule`), making the matching engine straightforward to test and reason about.
+
 ## [0.9.4] - 2026-02-26
 
 ### Fixed

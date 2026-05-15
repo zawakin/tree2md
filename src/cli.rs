@@ -195,6 +195,100 @@ pub struct Args {
     /// Disable all safety filters (not recommended)
     #[arg(long = "unsafe", conflicts_with = "safe", help_heading = "Safety")]
     pub unsafe_mode: bool,
+
+    /// Ordered -I / -X rules captured from argv. Populated AFTER clap parses
+    /// because clap derive cannot preserve the relative order of `-I` and
+    /// `-X` across two separate Vec fields. Last-match-wins semantics relies
+    /// on this order.
+    #[arg(skip)]
+    pub filter_rules: Vec<FilterRule>,
+}
+
+/// Whether a filter rule includes or excludes paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RuleKind {
+    #[default]
+    Include,
+    Exclude,
+}
+
+/// A single -I/-X rule with its original pattern, preserving CLI order.
+#[derive(Debug, Clone, Default)]
+pub struct FilterRule {
+    pub kind: RuleKind,
+    pub pattern: String,
+}
+
+/// Walk argv and extract `-I` / `-X` (and `--include` / `--exclude`) in the
+/// order they appeared on the command line. Used to drive last-match-wins
+/// semantics in the filter engine.
+pub fn extract_filter_rules<I, S>(argv: I) -> Vec<FilterRule>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut rules = Vec::new();
+    let mut iter = argv.into_iter().peekable();
+    // Skip program name
+    iter.next();
+    while let Some(arg) = iter.next() {
+        let a = arg.as_ref();
+        if a == "--" {
+            break;
+        }
+        let push = |kind: RuleKind, pat: String, rules: &mut Vec<FilterRule>| {
+            rules.push(FilterRule { kind, pattern: pat });
+        };
+        // Long forms with `=`
+        if let Some(rest) = a.strip_prefix("--include=") {
+            push(RuleKind::Include, rest.to_string(), &mut rules);
+            continue;
+        }
+        if let Some(rest) = a.strip_prefix("--exclude=") {
+            push(RuleKind::Exclude, rest.to_string(), &mut rules);
+            continue;
+        }
+        // Long forms with space
+        if a == "--include" {
+            if let Some(v) = iter.next() {
+                push(RuleKind::Include, v.as_ref().to_string(), &mut rules);
+            }
+            continue;
+        }
+        if a == "--exclude" {
+            if let Some(v) = iter.next() {
+                push(RuleKind::Exclude, v.as_ref().to_string(), &mut rules);
+            }
+            continue;
+        }
+        // Short forms `-I`, `-X` with space
+        if a == "-I" {
+            if let Some(v) = iter.next() {
+                push(RuleKind::Include, v.as_ref().to_string(), &mut rules);
+            }
+            continue;
+        }
+        if a == "-X" {
+            if let Some(v) = iter.next() {
+                push(RuleKind::Exclude, v.as_ref().to_string(), &mut rules);
+            }
+            continue;
+        }
+        // Short forms `-Ifoo`, `-Xfoo` (attached value)
+        if let Some(rest) = a.strip_prefix("-I") {
+            if !rest.is_empty() {
+                push(RuleKind::Include, rest.to_string(), &mut rules);
+                continue;
+            }
+        }
+        if let Some(rest) = a.strip_prefix("-X") {
+            if !rest.is_empty() {
+                push(RuleKind::Exclude, rest.to_string(), &mut rules);
+                continue;
+            }
+        }
+    }
+    rules
 }
 
 impl Args {

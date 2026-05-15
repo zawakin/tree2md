@@ -1,8 +1,8 @@
 mod cli;
 mod content;
+mod domain;
 mod fs_tree;
 mod language;
-mod matcher;
 mod output;
 mod profile;
 mod render;
@@ -36,7 +36,9 @@ fn main() -> io::Result<()> {
     // Restore default SIGPIPE behavior so piping to head/less doesn't panic
     reset_sigpipe();
 
-    let args = Args::parse();
+    let argv: Vec<String> = std::env::args().collect();
+    let mut args = Args::parse_from(&argv);
+    args.filter_rules = cli::extract_filter_rules(argv.iter().map(|s| s.as_str()));
 
     // Determine display root
     let display_root = Path::new(&args.target)

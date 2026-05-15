@@ -273,6 +273,7 @@ mod tests {
             contents_mode: crate::cli::ContentsMode::Head,
             safe: true,
             unsafe_mode: false,
+            filter_rules: vec![],
         }
     }
 
