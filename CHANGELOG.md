@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-05-16
+
+### Fixed
+- `tree2md --version` now reports the actual crate version. Previously a stale hard-coded constant in `src/cli.rs` caused it to print `0.9.2` regardless of the released version. The constant is now sourced from `CARGO_PKG_VERSION` so it stays in sync automatically.
+
 ## [0.10.0] - 2026-05-16
 
 ### Changed (breaking)
