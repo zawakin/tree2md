@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-05-16
+
+### Fixed
+- `-I path/to/dir` and `-I path/to/dir/` now include the contents of that directory. Previously the pattern was left as a literal path that only matched the directory entry itself, so the output was empty. A path-shaped pattern whose last segment looks like a bare directory name (no `.`, no glob metacharacter) now has `/**` appended automatically, mirroring the behaviour of the bare-name form (`-I dir` → `**/dir/**`).
+
 ## [0.10.1] - 2026-05-16
 
 ### Fixed
