@@ -136,6 +136,26 @@ fn brace_expansion_with_exclude() {
     assert!(!out.contains("foo.test.ts"));
 }
 
+/// `-I path/to/dir` and `-I path/to/dir/` both include the contents of
+/// that directory. Previously the trailing slash was just stripped and
+/// the literal path matched nothing under it, producing an empty tree.
+#[test]
+fn include_dir_shaped_path_pattern_expands() {
+    let (_t, root) = FixtureBuilder::new()
+        .file("projects/foo/a.ts", "x")
+        .file("projects/foo/sub/b.ts", "x")
+        .file("projects/other/c.ts", "x")
+        .build();
+
+    for pat in ["projects/foo", "projects/foo/"] {
+        let (out, _, ok) = run_tree2md([p(&root), "-I".into(), pat.into()]);
+        assert!(ok, "pattern: {pat}");
+        assert!(out.contains("a.ts"), "{pat}: missing a.ts in: {out}");
+        assert!(out.contains("b.ts"), "{pat}: missing b.ts in: {out}");
+        assert!(!out.contains("c.ts"), "{pat}: leaked c.ts in: {out}");
+    }
+}
+
 /// Regression for v0.10.0: `fix_double_star` and `brace_expand` iterated
 /// over `bytes()` and re-encoded each UTF-8 continuation byte as its own
 /// `char`, garbling multi-byte directory names. The result was that

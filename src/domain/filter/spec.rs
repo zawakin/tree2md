@@ -40,7 +40,7 @@ impl MatchSpec {
 
     /// Normalize a user-supplied glob pattern.
     ///
-    /// Three things happen here:
+    /// Four things happen here:
     /// 1. Trailing `/` is stripped (`hoge/` and `hoge` are equivalent).
     /// 2. `**X` where X is not `/` is rewritten to `**/*X`. This is purely
     ///    a UX fix: globset treats `**.json` as a literal segment, not a
@@ -50,19 +50,28 @@ impl MatchSpec {
     ///    `vendor` become `**/vendor/**`, file patterns like `*.rs` become
     ///    `**/*.rs`. This mirrors gitignore conventions so `-X build`
     ///    matches `build/` anywhere in the tree.
+    /// 4. Path patterns whose *last segment* looks like a directory name
+    ///    (no glob metacharacters and no `.`) get a `/**` appended so
+    ///    `-I "projects/foo"` and `-I "projects/foo/"` both include the
+    ///    contents of that directory. Without this step the pattern only
+    ///    matched the literal path entry and produced an empty tree —
+    ///    one of the original bug reports for the v0.10 series.
     pub fn normalize_pattern(pattern: &str) -> String {
         let pattern = pattern.strip_suffix('/').unwrap_or(pattern);
         let pattern = fix_double_star(pattern);
 
         if !pattern.contains('/') {
-            if !pattern.contains('*') && !pattern.contains('.') {
+            return if !pattern.contains('*') && !pattern.contains('.') {
                 format!("**/{}/**", pattern)
             } else {
                 format!("**/{}", pattern)
-            }
-        } else {
-            pattern
+            };
         }
+
+        if looks_like_dir_path(&pattern) {
+            return format!("{}/**", pattern);
+        }
+        pattern
     }
 
     /// Build a MatchSpec from CLI arguments.
@@ -156,6 +165,26 @@ impl MatchSpec {
     }
 }
 
+/// Does a `/`-containing pattern look like a bare directory path?
+///
+/// True when the final path segment contains no glob metacharacters and no
+/// `.` (which would suggest a filename with an extension). We treat braces
+/// (`{...}`) as wildcards because they expand to multiple alternatives, any
+/// of which could be a file or a directory — leaving them un-expanded keeps
+/// brace patterns like `packages/{a,b}` working as intended (`{a,b}` itself
+/// has no `.` so users who really mean "all of these dirs" can append `/**`
+/// explicitly; we only auto-expand when the segment is unambiguously a
+/// literal name).
+fn looks_like_dir_path(pattern: &str) -> bool {
+    let last = match pattern.rsplit('/').next() {
+        Some(s) if !s.is_empty() => s,
+        _ => return false,
+    };
+    !last
+        .chars()
+        .any(|c| matches!(c, '.' | '*' | '?' | '[' | '{'))
+}
+
 /// Rewrite `**X` (where X is neither `/` nor `*`) as `**/*X`. This is the
 /// pattern users intuitively write (`**.test.ts`) but globset treats as
 /// a single literal segment. We patch it at the segment boundary only —
@@ -204,7 +233,40 @@ mod tests {
     #[test]
     fn normalize_strips_trailing_slash() {
         assert_eq!(MatchSpec::normalize_pattern("hoge/"), "**/hoge/**");
-        assert_eq!(MatchSpec::normalize_pattern("src/lib/"), "src/lib");
+        // Trailing slash on a path-shaped pattern marks it as a directory
+        // and gets a recursive `/**` so contents are matched.
+        assert_eq!(MatchSpec::normalize_pattern("src/lib/"), "src/lib/**");
+        assert_eq!(MatchSpec::normalize_pattern("src/lib"), "src/lib/**");
+    }
+
+    #[test]
+    fn normalize_dir_shaped_path_pattern() {
+        // Path whose last segment looks like a bare directory name
+        // (no `.`, no wildcards) is treated as a directory.
+        assert_eq!(
+            MatchSpec::normalize_pattern("projects/foo"),
+            "projects/foo/**"
+        );
+        assert_eq!(
+            MatchSpec::normalize_pattern("projects/foo/"),
+            "projects/foo/**"
+        );
+        // A `.` in the last segment marks it as a filename — leave alone.
+        assert_eq!(
+            MatchSpec::normalize_pattern("projects/foo.ts"),
+            "projects/foo.ts"
+        );
+        // Wildcard in the last segment — leave alone.
+        assert_eq!(
+            MatchSpec::normalize_pattern("projects/*.ts"),
+            "projects/*.ts"
+        );
+        // Brace in the last segment — leave alone, brace expansion will
+        // handle the alternatives.
+        assert_eq!(
+            MatchSpec::normalize_pattern("packages/{a,b}"),
+            "packages/{a,b}"
+        );
     }
 
     #[test]
