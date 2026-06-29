@@ -1,7 +1,6 @@
 ## Required
 
-- **Always load `/git-workflow` first** before any other task, regardless of what the user says
-- All changes must go through PRs via `/git-workflow` — never commit directly to main
+- All changes must go through PRs — never commit directly to main
 - **Always use `mise run` for commands** — never run raw tools directly
   - `mise run fmt` — format code
   - `mise run lint` — lint code
