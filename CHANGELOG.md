@@ -6,8 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-30
+
 ### Added
 - `-l` / `--follow-links` opt-in flag to follow symbolic links. By default symlinks are still skipped entirely (unchanged). When enabled, symlinked files and directories are traversed and shown under their *logical* link path, including links whose targets resolve outside the scanned root — the common case for shared/vendored directories. Symlink cycles are detected and terminate safely. Note: with `-c`, following a link reads the target's real content, so escaping links can pull in out-of-tree files; name-based safety filters still apply.
+
+### Changed
+- `-h` now prints a tightened, single-screen help summary, and usage errors are followed by a short block of runnable next commands so a failed invocation points straight at the fix.
 
 ## [0.10.2] - 2026-05-16
 
@@ -373,7 +378,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/zawakin/tree2md/compare/v0.10.2...v0.11.0
+[0.10.2]: https://github.com/zawakin/tree2md/compare/v0.10.1...v0.10.2
+[0.10.1]: https://github.com/zawakin/tree2md/compare/v0.10.0...v0.10.1
+[0.10.0]: https://github.com/zawakin/tree2md/compare/v0.9.4...v0.10.0
 [0.9.4]: https://github.com/zawakin/tree2md/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/zawakin/tree2md/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/zawakin/tree2md/compare/v0.9.1...v0.9.2
