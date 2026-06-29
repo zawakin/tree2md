@@ -31,7 +31,7 @@ mise run release:watch            # Watch release CI (build + publish)
 
 2. **Create release branch**
    ```sh
-   mise run git:new release/vX.Y.Z
+   git switch -c release/vX.Y.Z origin/main
    ```
 
 3. **Update files**
@@ -50,7 +50,6 @@ mise run release:watch            # Watch release CI (build + publish)
    git commit -m "chore: bump version to vX.Y.Z"
    git push -u origin release/vX.Y.Z
    gh pr create -a "@me" -t "chore: bump version to vX.Y.Z (#N)"
-   mise run git:open-pr -- <pr#>   # background: CI → browser → merge watch → cleanup
    ```
 
 ### Phase 2: Tag (after PR merge)
