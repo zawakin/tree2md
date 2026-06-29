@@ -58,7 +58,7 @@ pub fn build_tree_with_spec(
             .git_exclude(false)
             .parents(false)
             .ignore(false)
-            .follow_links(false) // Skip symlinks as per spec
+            .follow_links(args.follow_links) // Opt-in via --follow-links; cycles are detected by `ignore`
             .max_depth(args.level); // Use level directly
 
         // Build a map of paths to nodes for efficient tree construction
@@ -79,8 +79,10 @@ pub fn build_tree_with_spec(
                 continue;
             }
 
-            // Skip symlinks entirely (per spec: "Symlinks are always skipped")
-            if entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false) {
+            // Skip symlinks unless --follow-links is set. With follow_links(true)
+            // the walker resolves links and reports the target's type, so this
+            // guard only fires for the default (non-following) behavior.
+            if !args.follow_links && entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false) {
                 continue;
             }
 
@@ -115,8 +117,20 @@ pub fn build_tree_with_spec(
                 continue;
             }
 
-            // Create RelPath for matching
-            let rel_path = match RelPath::from_root_rel(entry_path, root_path) {
+            // Create RelPath for matching.
+            //
+            // When following links we strip the *logical* walk root (`path_buf`)
+            // rather than the canonical `root_path`. `from_root_rel` falls back
+            // to canonicalizing both sides, which resolves a symlink to its
+            // target — and a target outside the scanned root would then fail the
+            // prefix check and be dropped. Stripping the logical path keeps the
+            // entry under its link path, so out-of-root targets are surfaced.
+            let match_root = if args.follow_links {
+                path_buf
+            } else {
+                root_path
+            };
+            let rel_path = match RelPath::from_root_rel(entry_path, match_root) {
                 Some(rp) => rp,
                 None => continue,
             };
@@ -148,11 +162,23 @@ pub fn build_tree_with_spec(
                 .to_string_lossy()
                 .to_string();
 
+            // The node's stored path is canonicalized so content/LOC reads
+            // resolve the real (symlink target) file.
             let resolved_entry_path = entry_path
                 .canonicalize()
                 .unwrap_or_else(|_| entry_path.to_path_buf());
 
-            let entry_display_path = calculate_display_path(&resolved_entry_path, display_root);
+            // Display path: when following links, show the logical link path
+            // (e.g. `link_dir/inside.txt`) instead of the canonicalized target,
+            // which would otherwise collapse the link onto its real location.
+            let entry_display_path = if args.follow_links {
+                entry_path
+                    .strip_prefix(path_buf)
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|_| calculate_display_path(&resolved_entry_path, display_root))
+            } else {
+                calculate_display_path(&resolved_entry_path, display_root)
+            };
 
             let node = Node::new(entry_name, resolved_entry_path, entry_metadata.is_dir())
                 .with_display_path(entry_display_path);

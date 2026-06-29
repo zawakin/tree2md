@@ -157,6 +157,15 @@ pub struct Args {
     )]
     pub use_gitignore: UseGitignoreMode,
 
+    /// Follow symbolic links (default: symlinks are skipped)
+    #[arg(
+        short = 'l',
+        long = "follow-links",
+        help_heading = "Filtering",
+        hide_short_help = true
+    )]
+    pub follow_links: bool,
+
     // ==================== Fun & Emojis ====================
     /// Custom emoji mappings (e.g., --emoji ".rs=🚀" --emoji "test=🧪")
     #[arg(

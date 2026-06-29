@@ -262,6 +262,7 @@ mod tests {
             include: vec![],
             exclude: vec![],
             use_gitignore: crate::cli::UseGitignoreMode::Auto,
+            follow_links: false,
             emoji: vec![],
             emoji_map: None,
             fun: FunMode::Off,

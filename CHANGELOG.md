@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `-l` / `--follow-links` opt-in flag to follow symbolic links. By default symlinks are still skipped entirely (unchanged). When enabled, symlinked files and directories are traversed and shown under their *logical* link path, including links whose targets resolve outside the scanned root — the common case for shared/vendored directories. Symlink cycles are detected and terminate safely. Note: with `-c`, following a link reads the target's real content, so escaping links can pull in out-of-tree files; name-based safety filters still apply.
+
 ## [0.10.2] - 2026-05-16
 
 ### Fixed
