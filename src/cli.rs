@@ -1,6 +1,38 @@
+use clap::error::ErrorKind;
 use clap::{Parser, ValueEnum};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Parse CLI arguments, exiting with actionable guidance on usage errors.
+///
+/// On `--help`/`--version` we defer to clap (stdout, exit 0). On a usage error
+/// we keep clap's message + "similar argument" tip, then append a short block of
+/// runnable next commands so a failed invocation points straight at the fix.
+pub fn parse() -> Args {
+    let argv: Vec<String> = std::env::args().collect();
+    match Args::try_parse_from(&argv) {
+        Ok(mut args) => {
+            args.filter_rules = extract_filter_rules(argv.iter().map(|s| s.as_str()));
+            args
+        }
+        Err(e) => {
+            e.print().ok();
+            let is_help_or_version = matches!(
+                e.kind(),
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayVersion
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            );
+            if !is_help_or_version {
+                eprintln!();
+                eprintln!("Try:");
+                eprintln!("  tree2md                # pretty tree of the current directory");
+                eprintln!("  tree2md -c | pbcopy    # tree + file contents for AI context");
+            }
+            std::process::exit(e.exit_code());
+        }
+    }
+}
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum UseGitignoreMode {
@@ -53,7 +85,9 @@ pub enum ContentsMode {
 #[derive(Parser, Clone)]
 #[command(name = "tree2md")]
 #[command(version = VERSION)]
-#[command(about = "Like the tree command, but optimized for AI agents")]
+#[command(
+    about = "Like the `tree` command, but optimized for AI agents.\n\nQUICK START:\n  tree2md                # pretty tree of the current directory\n  tree2md -c | pbcopy    # tree + file contents, copied for AI context"
+)]
 #[command(
     long_about = r#"tree2md — Visualize your codebase structure for humans and AI agents.
 
@@ -125,11 +159,21 @@ pub struct Args {
 
     // ==================== Fun & Emojis ====================
     /// Custom emoji mappings (e.g., --emoji ".rs=🚀" --emoji "test=🧪")
-    #[arg(long = "emoji", value_name = "MAPPING", help_heading = "Fun & Style")]
+    #[arg(
+        long = "emoji",
+        value_name = "MAPPING",
+        help_heading = "Fun & Style",
+        hide_short_help = true
+    )]
     pub emoji: Vec<String>,
 
     /// Load emoji mappings from TOML file
-    #[arg(long = "emoji-map", value_name = "FILE", help_heading = "Fun & Style")]
+    #[arg(
+        long = "emoji-map",
+        value_name = "FILE",
+        help_heading = "Fun & Style",
+        hide_short_help = true
+    )]
     pub emoji_map: Option<String>,
 
     /// Fun mode with emojis and animations
@@ -137,12 +181,18 @@ pub struct Args {
         long = "fun",
         value_enum,
         default_value = "auto",
-        help_heading = "Fun & Style"
+        help_heading = "Fun & Style",
+        hide_short_help = true
     )]
     pub fun: FunMode,
 
     /// Disable animations
-    #[arg(long = "no-anim", conflicts_with = "fun", help_heading = "Fun & Style")]
+    #[arg(
+        long = "no-anim",
+        conflicts_with = "fun",
+        help_heading = "Fun & Style",
+        hide_short_help = true
+    )]
     pub no_anim: bool,
 
     // ==================== Statistics ====================
@@ -151,7 +201,8 @@ pub struct Args {
         long = "stats",
         value_enum,
         default_value = "full",
-        help_heading = "Statistics"
+        help_heading = "Statistics",
+        hide_short_help = true
     )]
     pub stats: StatsMode,
 
@@ -160,7 +211,8 @@ pub struct Args {
         long = "loc",
         value_enum,
         default_value = "fast",
-        help_heading = "Statistics"
+        help_heading = "Statistics",
+        hide_short_help = true
     )]
     pub loc: LocMode,
 
@@ -183,13 +235,14 @@ pub struct Args {
         long = "contents-mode",
         value_enum,
         default_value = "head",
-        help_heading = "Contents"
+        help_heading = "Contents",
+        hide_short_help = true
     )]
     pub contents_mode: ContentsMode,
 
     // ==================== Safety & Security ====================
     /// Apply safety filters (enabled by default)
-    #[arg(long = "safe", help_heading = "Safety")]
+    #[arg(long = "safe", help_heading = "Safety", hide_short_help = true)]
     pub safe: bool,
 
     /// Disable all safety filters (not recommended)

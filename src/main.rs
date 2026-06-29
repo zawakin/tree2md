@@ -10,8 +10,6 @@ mod safety;
 mod terminal;
 mod util;
 
-use clap::Parser;
-use cli::Args;
 use fs_tree::{build_tree, ProgressTracker};
 use std::io;
 use std::path::Path;
@@ -36,9 +34,7 @@ fn main() -> io::Result<()> {
     // Restore default SIGPIPE behavior so piping to head/less doesn't panic
     reset_sigpipe();
 
-    let argv: Vec<String> = std::env::args().collect();
-    let mut args = Args::parse_from(&argv);
-    args.filter_rules = cli::extract_filter_rules(argv.iter().map(|s| s.as_str()));
+    let args = cli::parse();
 
     // Determine display root
     let display_root = Path::new(&args.target)
@@ -83,6 +79,8 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use cli::Args;
     use language::detect_lang;
     use std::fs;
     use tempfile::TempDir;
