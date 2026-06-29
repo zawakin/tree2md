@@ -103,6 +103,7 @@ cargo install --path .
 | `-I, --include <GLOB>` | Include patterns (repeatable) |
 | `-X, --exclude <GLOB>` | Exclude patterns (repeatable) |
 | `--use-gitignore {auto\|never\|always}` | Respect `.gitignore` |
+| `-l, --follow-links` | Follow symbolic links (default: symlinks are skipped) |
 
 ### Contents
 
