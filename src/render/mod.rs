@@ -40,6 +40,8 @@ mod tests {
             exclude: vec![],
             use_gitignore: crate::cli::UseGitignoreMode::Auto,
             follow_links: false,
+            paths_from: None,
+            files0_from: None,
             emoji: vec![],
             emoji_map: None,
             fun: FunMode::Off,

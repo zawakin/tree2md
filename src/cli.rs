@@ -108,6 +108,8 @@ FILTERING:
   -I "*.rs"            Include only matching files
   -X "*.log"           Exclude matching files
   --use-gitignore      Respect .gitignore (auto|never|always)
+  --paths-from FILE    Include only the paths listed in FILE (`-` = stdin)
+  --files0-from FILE   Same, NUL-separated (find -print0 / git ls-files -z)
 
 SAFETY:
   Safe by default: excludes .env, private keys, node_modules, etc.
@@ -156,6 +158,27 @@ pub struct Args {
         help_heading = "Filtering"
     )]
     pub use_gitignore: UseGitignoreMode,
+
+    /// Read paths to include from FILE, one per line (`-` = stdin). No glob
+    /// interpretation; paths are relative to the current directory. A listed
+    /// directory includes everything beneath it. Combine with `-I`/`-X` to
+    /// refine the set further (rules are applied last-match-wins on top).
+    #[arg(
+        long = "paths-from",
+        value_name = "FILE",
+        conflicts_with = "files0_from",
+        help_heading = "Filtering"
+    )]
+    pub paths_from: Option<String>,
+
+    /// Like --paths-from but NUL-separated (for `find -print0`, `git ls-files -z`, `fd -0`)
+    #[arg(
+        long = "files0-from",
+        value_name = "FILE",
+        help_heading = "Filtering",
+        hide_short_help = true
+    )]
+    pub files0_from: Option<String>,
 
     /// Follow symbolic links (default: symlinks are skipped)
     #[arg(

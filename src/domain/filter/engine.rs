@@ -1,4 +1,4 @@
-use super::{MatchSpec, RelPath};
+use super::{ExplicitPaths, MatchSpec, RelPath};
 use crate::cli::RuleKind;
 use crate::safety::SafetyPreset;
 use globset::{Glob, GlobMatcher};
@@ -39,6 +39,10 @@ pub struct MatcherEngine {
     gitignore_layers: Vec<(String, Gitignore)>,
     safety_preset: Option<SafetyPreset>,
     has_includes: bool,
+    /// Literal path list from `--paths-from` / `--files0-from`. Acts as an
+    /// include rule that precedes every argv rule, so `-X` can still carve
+    /// entries out of the list.
+    explicit: Option<ExplicitPaths>,
 }
 
 impl MatcherEngine {
@@ -74,10 +78,12 @@ impl MatcherEngine {
         };
 
         Ok(Self {
-            has_includes: rules.iter().any(|r| r.kind == RuleKind::Include),
+            has_includes: spec.explicit_paths.is_some()
+                || rules.iter().any(|r| r.kind == RuleKind::Include),
             rules,
             gitignore_layers,
             safety_preset,
+            explicit: spec.explicit_paths.clone(),
         })
     }
 
@@ -86,16 +92,20 @@ impl MatcherEngine {
         let path_str = rel_path.as_match_str();
         let path_ref = path_str.as_ref();
 
-        // Last-wins evaluation over CLI rules.
-        let mut last: Option<&CompiledRule> = None;
+        // Last-wins evaluation over CLI rules. An explicit path list acts as
+        // the earliest include rule.
+        let mut last: Option<RuleKind> = match &self.explicit {
+            Some(e) if e.covers(path_ref) => Some(RuleKind::Include),
+            _ => None,
+        };
         for rule in &self.rules {
             if rule.matcher.is_match(path_ref) {
-                last = Some(rule);
+                last = Some(rule.kind);
             }
         }
 
-        if let Some(rule) = last {
-            return match rule.kind {
+        if let Some(kind) = last {
+            return match kind {
                 RuleKind::Include => Selection::Include,
                 RuleKind::Exclude => Selection::Exclude,
             };
@@ -149,7 +159,12 @@ impl MatcherEngine {
         // lets users carve specific subtrees out of an otherwise-ignored
         // location (`-X vendor -I vendor/**/*.py`) and conversely lets a
         // late `-X` prune a subtree an earlier `-I` opened up.
-        let mut last_explicit: Option<&CompiledRule> = None;
+        // A listed directory (or one beneath / above a listed path) is an
+        // explicit include: the user named it, so it overrides ambient filters.
+        let mut last_explicit: Option<RuleKind> = match &self.explicit {
+            Some(e) if e.covers(path_ref) || e.is_ancestor(path_ref) => Some(RuleKind::Include),
+            _ => None,
+        };
         for rule in &self.rules {
             let applies = match rule.kind {
                 RuleKind::Include => path_specific_include_targets_dir(&rule.pattern, path_ref),
@@ -159,12 +174,12 @@ impl MatcherEngine {
                 }
             };
             if applies {
-                last_explicit = Some(rule);
+                last_explicit = Some(rule.kind);
             }
         }
 
-        if let Some(rule) = last_explicit {
-            return match rule.kind {
+        if let Some(kind) = last_explicit {
+            return match kind {
                 RuleKind::Include => Selection::Include,
                 RuleKind::Exclude => Selection::PruneDir,
             };
