@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-08-25
+
 ### Added
 - `--paths-from FILE` and `--files0-from FILE` (`-` = stdin) restrict the tree to an explicit list of paths — newline- or NUL-separated, no glob interpretation. This is the extension point for selections tree2md can't express itself: compute the set with `find`, `fd`, `git ls-files`, `jq`, … and pipe it in. Entries are resolved relative to the current directory (as those tools print them) and re-based onto `TARGET`; a listed directory includes everything beneath it, ancestor directories are shown automatically, and explicitly listed paths override gitignore/safety filters. `-I`/`-X` rules still apply on top with last-match-wins, so `--paths-from list -X build` prunes `build/` inside listed directories.
 
@@ -381,7 +383,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/zawakin/tree2md/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/zawakin/tree2md/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/zawakin/tree2md/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/zawakin/tree2md/compare/v0.10.0...v0.10.1
