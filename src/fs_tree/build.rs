@@ -16,7 +16,7 @@ pub fn build_tree(
     display_root: &Path,
 ) -> io::Result<Node> {
     // Create MatchSpec from CLI arguments
-    let spec = MatchSpec::from_args(args, Path::new(path));
+    let spec = MatchSpec::from_args(args, Path::new(path))?;
     build_tree_with_spec(path, args, &spec, root_path, display_root)
 }
 

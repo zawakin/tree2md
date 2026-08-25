@@ -1,3 +1,4 @@
+use super::ExplicitPaths;
 use crate::cli::{Args, FilterRule, RuleKind};
 
 /// Declarative specification of file matching rules.
@@ -19,6 +20,11 @@ pub struct MatchSpec {
 
     /// Whether pattern matching is case sensitive
     pub case_sensitive: bool,
+
+    /// Literal paths from `--paths-from` / `--files0-from`. When present the
+    /// tree is restricted to these paths (plus their ancestors), and
+    /// `-I`/`-X` rules refine that set.
+    pub explicit_paths: Option<ExplicitPaths>,
 }
 
 impl Default for MatchSpec {
@@ -28,6 +34,7 @@ impl Default for MatchSpec {
             respect_gitignore: false,
             use_safety_preset: true,
             case_sensitive: true,
+            explicit_paths: None,
         }
     }
 }
@@ -74,8 +81,15 @@ impl MatchSpec {
         pattern
     }
 
-    /// Build a MatchSpec from CLI arguments.
-    pub fn from_args(args: &Args, target_path: &std::path::Path) -> Self {
+    /// Build a MatchSpec from CLI arguments. Reads the `--paths-from` /
+    /// `--files0-from` list (possibly from stdin) if one was given.
+    pub fn from_args(args: &Args, target_path: &std::path::Path) -> std::io::Result<Self> {
+        let explicit_paths = match (&args.paths_from, &args.files0_from) {
+            (Some(src), _) => Some(ExplicitPaths::load(src, false, target_path)?),
+            (None, Some(src)) => Some(ExplicitPaths::load(src, true, target_path)?),
+            (None, None) => None,
+        };
+
         let rules = args
             .filter_rules
             .iter()
@@ -91,12 +105,13 @@ impl MatchSpec {
             crate::cli::UseGitignoreMode::Auto => Self::is_inside_git_repo(target_path),
         };
 
-        Self {
+        Ok(Self {
             rules,
             respect_gitignore,
             use_safety_preset: args.is_safe_mode(),
             case_sensitive: true,
-        }
+            explicit_paths,
+        })
     }
 
     fn is_inside_git_repo(path: &std::path::Path) -> bool {
@@ -112,8 +127,17 @@ impl MatchSpec {
         }
     }
 
+    /// True when the user restricted the tree to a positive selection,
+    /// either via `-I` rules or an explicit path list.
     pub fn has_includes(&self) -> bool {
-        self.rules.iter().any(|r| r.kind == RuleKind::Include)
+        self.explicit_paths.is_some() || self.rules.iter().any(|r| r.kind == RuleKind::Include)
+    }
+
+    /// Test helper: restrict to an explicit path list.
+    #[allow(dead_code)]
+    pub fn with_explicit_paths(mut self, paths: ExplicitPaths) -> Self {
+        self.explicit_paths = Some(paths);
+        self
     }
 
     /// Test helper: append include rules in order.

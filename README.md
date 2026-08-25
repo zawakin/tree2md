@@ -104,6 +104,10 @@ cargo install --path .
 | `-X, --exclude <GLOB>` | Exclude patterns (repeatable) |
 | `--use-gitignore {auto\|never\|always}` | Respect `.gitignore` |
 | `-l, --follow-links` | Follow symbolic links (default: symlinks are skipped) |
+| `--paths-from <FILE>` | Include only the paths listed in FILE, one per line (`-` = stdin). Literal paths, no globs; a listed directory includes its contents |
+| `--files0-from <FILE>` | Same as `--paths-from`, NUL-separated (`find -print0`, `git ls-files -z`, `fd -0`) |
+
+`-I`/`-X` can be combined with a path list to refine it — rules are applied on top with the usual last-match-wins order (`--paths-from list -X build` prunes `build/` inside listed directories).
 
 ### Contents
 
@@ -180,6 +184,22 @@ tree2md . -L 2 --stats min
 
 ```bash
 tree2md src/ -L 3 -I "*.rs"
+```
+
+**Select directories by a condition tree2md can't express** — compute the
+path set with your favourite tool and pipe it in:
+
+```bash
+# only projects whose project.json says "active"
+for d in projects/*/; do
+  jq -e '.status == "active"' "$d/project.json" >/dev/null && printf '%s\0' "$d"
+done | tree2md -c --files0-from -
+
+# tracked files only
+git ls-files -z | tree2md --files0-from -
+
+# files changed on this branch, with contents, for a review prompt
+git diff --name-only main... | tree2md -c --paths-from - | pbcopy
 ```
 
 ---
