@@ -51,19 +51,15 @@ pub fn build_tree_with_spec(
         // Compile the matcher engine
         let matcher = Arc::new(MatcherEngine::compile(spec, root_path)?);
 
-        // Root that RelPaths for matching are taken against.
-        //
-        // When following links we strip the *logical* walk root (`path_buf`)
-        // rather than the canonical `root_path`. `from_root_rel` falls back
-        // to canonicalizing both sides, which resolves a symlink to its
-        // target — and a target outside the scanned root would then fail the
-        // prefix check and be dropped. Stripping the logical path keeps the
-        // entry under its link path, so out-of-root targets are surfaced.
-        let match_root = if args.follow_links {
-            path_buf.to_path_buf()
-        } else {
-            root_path.to_path_buf()
-        };
+        // Root that RelPaths for matching are taken against: the *logical*
+        // walk root. Every entry the walker yields starts with it, so the
+        // prefix strip in `from_root_rel` succeeds directly. Stripping the
+        // canonical `root_path` instead fails for a relative target (`.`) and
+        // falls back to canonicalizing both sides for every entry; when
+        // following links, that would also resolve a link to a target outside
+        // the root and drop it. The logical path keeps entries under their
+        // link path.
+        let match_root = path_buf.to_path_buf();
 
         let nested_repo_pruned = Arc::new(AtomicBool::new(false));
         let walker = new_walker(
@@ -131,11 +127,17 @@ pub fn build_tree_with_spec(
                 .to_string_lossy()
                 .to_string();
 
-            // The node's stored path is canonicalized so content/LOC reads
-            // resolve the real (symlink target) file.
-            let resolved_entry_path = entry_path
-                .canonicalize()
-                .unwrap_or_else(|_| entry_path.to_path_buf());
+            // The node's stored path is canonical so content/LOC reads resolve
+            // the real (symlink target) file. Without --follow-links the walk
+            // never enters a symlink, so the canonical root joined with the
+            // relative path is already canonical and needs no syscalls.
+            let resolved_entry_path = if args.follow_links {
+                entry_path
+                    .canonicalize()
+                    .unwrap_or_else(|_| entry_path.to_path_buf())
+            } else {
+                resolved_path.join(rel_path.to_path_buf())
+            };
 
             // Display path: when following links, show the logical link path
             // (e.g. `link_dir/inside.txt`) instead of the canonicalized target,
