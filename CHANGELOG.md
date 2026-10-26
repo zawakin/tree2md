@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- The safety filter now excludes secret files at any depth. Only a root-level `.env` / `.env.*` was excluded, so files such as `apps/web/.env` or `backend/.env.local` were listed and, with `-c`, printed in full into AI context. Also excluded by default now: credential files targeted by the October 2026 credential-stealer campaigns — `.envrc`, `.npmrc`, `.pypirc`, `.netrc` / `_netrc`, `.git-credentials`, `.docker/config.json`, `.kube/config` / `kubeconfig`, `*.tfstate`, `.pgpass`, `.my.cnf`, `*.ppk`, `.gnupg/` — and PHP / web-hosting secrets: Composer `auth.json`, `wp-config.php`, `.htpasswd`. `.DS_Store`, `Thumbs.db` and `desktop.ini` are now excluded at any depth too. Use `-I` to include a specific file, or `--unsafe` to disable the filter. If you have run `tree2md -c` on a tree with such files and shared the output, consider rotating the secrets in them.
+
 ### Fixed
 - Large trees with many directories no longer take quadratic time to assemble. Building the tree scanned every collected node once per directory, so a repository with 16,000 directories / 80,000 files took ~74 s; it now takes ~4 s (I/O-bound). Generic includes such as `-I '*.rs'` were hit too, because every directory is collected before empty ones are dropped: 10 matching files in that same tree took ~9.5 s and now take ~0.7 s.
 - Excluded directories are no longer read. Pruning decisions (`-I`/`-X`, gitignore, safety preset, nested repositories, `.git`) only skipped the entries beneath a directory while the walker still descended into it, so `target/`, `node_modules/` and `.git/` were read in full on every run. Pruning now happens inside the walker: in this repository `tree2md -I 'src/**' --use-gitignore never .` went from 0.10 s to 0.009 s (same as `tree2md src`), and the time no longer grows with the size of excluded directories.
