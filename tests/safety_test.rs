@@ -321,3 +321,80 @@ fn test_package_lock_files_included() {
     assert!(output.contains("Cargo.lock"));
     assert!(output.contains("yarn.lock"));
 }
+
+/// Secret files below the root must not reach `-c` output. Only a root-level
+/// `.env` used to be excluded, so `apps/web/.env` and credential files such as
+/// `.npmrc` or Composer's `auth.json` were printed in full.
+fn secret_files_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
+    FixtureBuilder::new()
+        .file("README.md", "# Project\n")
+        .file("apps/web/main.rs", "fn main() {}\n")
+        .file("apps/web/.env", "NESTED=LEAKED_SECRET\n")
+        .file("backend/.env.local", "DB=LEAKED_SECRET\n")
+        .file(".envrc", "export KEY=LEAKED_SECRET\n")
+        .file(
+            "packages/ui/.npmrc",
+            "//registry.npmjs.org/:_authToken=LEAKED_SECRET\n",
+        )
+        .file(".pypirc", "password = LEAKED_SECRET\n")
+        .file(".netrc", "machine example.com password LEAKED_SECRET\n")
+        .file(".git-credentials", "https://u:LEAKED_SECRET@example.com\n")
+        .file(
+            ".docker/config.json",
+            "{\"auths\":{\"x\":\"LEAKED_SECRET\"}}\n",
+        )
+        .file("deploy/.kube/config", "token: LEAKED_SECRET\n")
+        .file(
+            "infra/terraform.tfstate",
+            "{\"secret\":\"LEAKED_SECRET\"}\n",
+        )
+        .file(
+            "auth.json",
+            "{\"github-oauth\":{\"github.com\":\"LEAKED_SECRET\"}}\n",
+        )
+        .file(
+            "site/wp-config.php",
+            "<?php define('DB_PASSWORD','LEAKED_SECRET');\n",
+        )
+        .file("site/.htpasswd", "admin:LEAKED_SECRET\n")
+        .build()
+}
+
+#[test]
+fn test_secret_files_excluded_from_contents_at_any_depth() {
+    let (_tmp, root) = secret_files_fixture();
+
+    let (output, _, success) = run_tree2md([p(&root), "-c".into()]);
+    assert!(success);
+    assert!(output.contains("main.rs"), "got:\n{}", output);
+    assert!(
+        !output.contains("LEAKED_SECRET"),
+        "secret file contents leaked:\n{}",
+        output
+    );
+    for name in [
+        ".env",
+        ".envrc",
+        ".npmrc",
+        ".pypirc",
+        ".netrc",
+        ".git-credentials",
+        "config.json",
+        "terraform.tfstate",
+        "auth.json",
+        "wp-config.php",
+        ".htpasswd",
+    ] {
+        assert!(!output.contains(name), "{} should be excluded", name);
+    }
+}
+
+#[test]
+fn test_include_pattern_overrides_secret_file_exclusion() {
+    let (_tmp, root) = secret_files_fixture();
+
+    let (output, _, success) = run_tree2md([p(&root), "-I".into(), "wp-config.php".into()]);
+    assert!(success);
+    assert!(output.contains("wp-config.php"), "got:\n{}", output);
+    assert!(!output.contains(".env"), "only the included file is shown");
+}

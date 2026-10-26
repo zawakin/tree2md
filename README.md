@@ -144,9 +144,11 @@ cargo install --path .
 
 ## Safety Defaults
 
-Excluded by default:
+Excluded by default (at any depth):
 
-- `.env`, `.ssh/**`, `*.pem`, `*.key`
+- `.env`, `.env.*`, `.envrc`, `.ssh/**`, `*.pem`, `*.key`, `credentials`, `secrets`
+- Tokens and passwords: `.npmrc`, `.pypirc`, `.netrc`, `.git-credentials`, `.docker/config.json`, `.kube/config`, `*.tfstate`, `.pgpass`, `.my.cnf`, `*.ppk`, `.gnupg/**`
+- PHP / web hosting: Composer `auth.json`, `wp-config.php`, `.htpasswd`
 - `node_modules/`, `target/`, `dist/`, `build/`
 - `.git/**`, `.DS_Store`, `Thumbs.db`
 
