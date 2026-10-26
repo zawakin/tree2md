@@ -277,3 +277,48 @@ fn test_stats_directory_count() {
         "Should count files correctly"
     );
 }
+
+/// File types with equal counts must be listed in a stable order (by name),
+/// including which ones make the top-8 cut. They used to follow HashMap
+/// iteration order, which changes from run to run.
+#[test]
+fn test_stats_by_type_ties_are_ordered_by_name() {
+    let (_tmp, root) = FixtureBuilder::new()
+        .file("one.rs", "fn one() {}")
+        .file("two.rs", "fn two() {}")
+        .file("alpha.go", "package alpha")
+        .file("alpha.py", "x = 1")
+        .file("alpha.rb", "x = 1")
+        .file("alpha.sh", "echo hi")
+        .file("alpha.json", "{}")
+        .file("alpha.yaml", "a: 1")
+        .file("alpha.toml", "a = 1")
+        .file("alpha.xml", "<a/>")
+        .file("alpha.java", "class A {}")
+        .file("alpha.swift", "let a = 1")
+        .build();
+
+    let by_type = |output: &str| -> Vec<String> {
+        output
+            .lines()
+            .skip_while(|l| !l.starts_with("**By type**"))
+            .skip(1)
+            .take_while(|l| l.starts_with("- "))
+            .map(|l| l[2..].split(':').next().unwrap().to_string())
+            .collect()
+    };
+
+    let (first, _, success) = run_tree2md([p(&root)]);
+    assert!(success);
+    assert_eq!(
+        by_type(&first),
+        ["Rust", "Go", "JSON", "Java", "Python", "Ruby", "Shell", "Swift"],
+        "got:\n{}",
+        first
+    );
+
+    for _ in 0..5 {
+        let (output, _, _) = run_tree2md([p(&root)]);
+        assert_eq!(output, first, "output changed between runs");
+    }
+}
