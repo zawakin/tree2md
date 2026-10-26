@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [ main ]
 
+# Third-party actions are pinned to full commit SHAs (tags can be moved).
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -12,12 +16,17 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-10-16
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: fmt
         run: cargo fmt -- --check
       - name: clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked -- -D warnings
       - name: test
-        run: cargo test --verbose
+        run: cargo test --locked --verbose

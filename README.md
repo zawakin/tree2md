@@ -91,6 +91,14 @@ cd tree2md
 cargo install --path .
 ```
 
+Prebuilt binaries are on [GitHub Releases](https://github.com/zawakin/tree2md/releases). From v0.12.1 on, each archive has a signed build provenance attestation. Verify a download before running it:
+
+```bash
+gh attestation verify tree2md-aarch64-apple-darwin.tar.gz --repo zawakin/tree2md
+```
+
+This checks that the file was built by this repository's release workflow from the tagged commit. A replaced archive fails, even if its `.sha256` was replaced too.
+
 ---
 
 ## CLI Options

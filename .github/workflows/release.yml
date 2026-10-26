@@ -3,8 +3,16 @@ on:
   push:
     tags: [ 'v*' ]
 
+# Hardening:
+# - Third-party actions are pinned to full commit SHAs (tags can be moved).
+# - The token is read-only by default; each job asks only for what it needs.
+# - No build cache: release binaries are built from a clean state, so a cache
+#   written by another workflow run cannot leak into them.
+# - Builds and publish use the committed Cargo.lock (--locked).
+# - Each archive gets a signed build provenance attestation, so a replaced
+#   download (and its .sha256) fails `gh attestation verify`.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,6 +21,10 @@ jobs:
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write      # sign the provenance attestation
+      attestations: write  # store it
     strategy:
       fail-fast: false
       matrix:
@@ -31,11 +43,13 @@ jobs:
             pack: zip
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-10-16
+        with:
+          toolchain: stable
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
 
       - name: Verify tag == Cargo.toml
         shell: bash
@@ -49,7 +63,7 @@ jobs:
           echo "OK: $TAG matches Cargo.toml"
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Prepare package
         shell: bash
@@ -71,8 +85,13 @@ jobs:
             shasum -a 256 "$OUT.tar.gz" > "$OUT.sha256"
           fi
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: dist/tree2md-${{ matrix.target }}.${{ matrix.pack }}
+
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tree2md-${{ matrix.target }}
           path: dist/tree2md-${{ matrix.target }}.*
@@ -81,22 +100,25 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # create the release and upload assets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      
-      - uses: actions/download-artifact@v4
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
-      
+
       # Extract release notes from CHANGELOG.md for this version
       - name: Extract release notes from CHANGELOG.md
         id: notes
         run: |
           TAG="${GITHUB_REF_NAME}"           # e.g. v0.5.0
           VER="${TAG#v}"                     # e.g. 0.5.0
-          
+
           # Extract the section for this version from CHANGELOG.md
           awk -v ver="$VER" '
             $0 ~ "^## \\[" ver "\\]" {p=1; next}
@@ -104,17 +126,17 @@ jobs:
             p && $0 ~ "^\\[Unreleased\\]:" {exit}
             p
           ' CHANGELOG.md > RELEASE_NOTES.md
-          
+
           # Add header with version and date
           echo "## tree2md ${TAG}" > RELEASE_NOTES_FINAL.md
           echo "" >> RELEASE_NOTES_FINAL.md
           cat RELEASE_NOTES.md >> RELEASE_NOTES_FINAL.md
-          
+
           echo "---- RELEASE NOTES ----"
           cat RELEASE_NOTES_FINAL.md
-      
+
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           name: "tree2md ${{ github.ref_name }}"
           files: artifacts/**/tree2md-*
@@ -128,10 +150,16 @@ jobs:
     name: Publish to crates.io
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable, 2026-10-16
+        with:
+          toolchain: stable
 
       - name: Ensure tag == Cargo.toml (strict)
         run: |
@@ -149,5 +177,6 @@ jobs:
 
       - name: Publish
         env:
+          # Read by cargo from the environment; not passed on the command line.
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --token "$CARGO_REGISTRY_TOKEN" --allow-dirty
+        run: cargo publish --locked
