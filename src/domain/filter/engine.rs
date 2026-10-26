@@ -3,9 +3,10 @@ use crate::cli::RuleKind;
 use crate::safety::SafetyPreset;
 use globset::{Glob, GlobMatcher};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-use std::path::PathBuf;
+use std::sync::RwLock;
 
 /// Selection decision for a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +37,15 @@ struct CompiledRule {
 /// you say them out loud; the later one carves out the earlier one."
 pub struct MatcherEngine {
     rules: Vec<CompiledRule>,
-    gitignore_layers: Vec<(String, Gitignore)>,
+    respect_gitignore: bool,
+    /// Ancestor + root `.gitignore`, `.git/info/exclude`, and the global
+    /// ignore file, scoped to the root.
+    root_gitignore: Option<Gitignore>,
+    /// Nested `.gitignore` files keyed by their directory's scope (`a/b`).
+    /// Loaded as the walk enters each directory (`load_nested_gitignore`), so
+    /// pruned subtrees are never scanned for them. Behind a lock because the
+    /// engine is shared with the walker's `filter_entry`, which must be `Sync`.
+    nested_gitignores: RwLock<HashMap<String, Gitignore>>,
     safety_preset: Option<SafetyPreset>,
     has_includes: bool,
     /// Literal path list from `--paths-from` / `--files0-from`. Acts as an
@@ -65,10 +74,10 @@ impl MatcherEngine {
             })
             .collect::<io::Result<Vec<_>>>()?;
 
-        let gitignore_layers = if spec.respect_gitignore {
-            build_gitignore_layers(root)?
+        let root_gitignore = if spec.respect_gitignore {
+            build_root_gitignore(root)?
         } else {
-            Vec::new()
+            None
         };
 
         let safety_preset = if spec.use_safety_preset {
@@ -81,7 +90,9 @@ impl MatcherEngine {
             has_includes: spec.explicit_paths.is_some()
                 || rules.iter().any(|r| r.kind == RuleKind::Include),
             rules,
-            gitignore_layers,
+            respect_gitignore: spec.respect_gitignore,
+            root_gitignore,
+            nested_gitignores: RwLock::new(HashMap::new()),
             safety_preset,
             explicit: spec.explicit_paths.clone(),
         })
@@ -214,18 +225,60 @@ impl MatcherEngine {
         Selection::Include
     }
 
+    /// Load `<dir>/.gitignore`, if any, as a layer covering everything beneath
+    /// `dir_rel`. Call when the walk enters a directory, before any of its
+    /// entries are selected. A no-op when gitignore is not respected.
+    pub fn load_nested_gitignore(&self, dir_rel: &RelPath, dir: &Path) -> io::Result<()> {
+        if !self.respect_gitignore {
+            return Ok(());
+        }
+        let gi_path = dir.join(".gitignore");
+        if !gi_path.exists() {
+            return Ok(());
+        }
+        let scope = dir_rel.as_match_str().into_owned();
+        let mut builder = GitignoreBuilder::new(dir);
+        builder.add(&gi_path);
+        let gi = builder.build().map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Failed to build gitignore for {}: {}", scope, e),
+            )
+        })?;
+        self.nested_gitignores
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(scope, gi);
+        Ok(())
+    }
+
     fn matches_gitignore(&self, path_str: &str, rel_path: &RelPath, is_dir: bool) -> bool {
-        for (scope, gitignore) in &self.gitignore_layers {
-            if !scope.is_empty() && !path_str.starts_with(&format!("{}/", scope)) {
-                continue;
-            }
-            let match_path = if scope.is_empty() {
-                rel_path.to_path_buf()
-            } else {
-                PathBuf::from(&path_str[scope.len() + 1..])
-            };
-            if gitignore.matched(&match_path, is_dir).is_ignore() {
+        if let Some(ref gitignore) = self.root_gitignore {
+            if gitignore
+                .matched(rel_path.to_path_buf(), is_dir)
+                .is_ignore()
+            {
                 return true;
+            }
+        }
+
+        // A nested layer applies to paths beneath its directory, so only the
+        // ancestors of this path (each prefix ending before a `/`) can match.
+        let nested = self
+            .nested_gitignores
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        if nested.is_empty() {
+            return false;
+        }
+        for (i, _) in path_str.match_indices('/') {
+            if let Some(gitignore) = nested.get(&path_str[..i]) {
+                if gitignore
+                    .matched(Path::new(&path_str[i + 1..]), is_dir)
+                    .is_ignore()
+                {
+                    return true;
+                }
             }
         }
         false
@@ -358,11 +411,10 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
     out
 }
 
-/// Collect ancestor + nested `.gitignore` files, `.git/info/exclude`, and the
-/// global ignore file into directory-scoped Gitignore layers.
-fn build_gitignore_layers(root: &Path) -> io::Result<Vec<(String, Gitignore)>> {
-    let mut layers: Vec<(String, Gitignore)> = Vec::new();
-
+/// Collect ancestor + root `.gitignore` files, `.git/info/exclude`, and the
+/// global ignore file into the root-scoped Gitignore. Nested `.gitignore`
+/// files are loaded during the walk (`MatcherEngine::load_nested_gitignore`).
+fn build_root_gitignore(root: &Path) -> io::Result<Option<Gitignore>> {
     let mut root_builder = GitignoreBuilder::new(root);
     let mut has_root_patterns = false;
 
@@ -397,65 +449,16 @@ fn build_gitignore_layers(root: &Path) -> io::Result<Vec<(String, Gitignore)>> {
         }
     }
 
-    if has_root_patterns {
-        let gi = root_builder.build().map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Failed to build root gitignore: {}", e),
-            )
-        })?;
-        layers.push((String::new(), gi));
+    if !has_root_patterns {
+        return Ok(None);
     }
-
-    for gi_path in collect_nested_gitignores(root) {
-        let dir = gi_path.parent().unwrap();
-        let scope = dir
-            .strip_prefix(root)
-            .unwrap_or(Path::new(""))
-            .to_string_lossy()
-            .replace('\\', "/");
-        let mut builder = GitignoreBuilder::new(dir);
-        builder.add(&gi_path);
-        let gi = builder.build().map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Failed to build gitignore for {}: {}", scope, e),
-            )
-        })?;
-        layers.push((scope, gi));
-    }
-
-    Ok(layers)
-}
-
-fn collect_nested_gitignores(root: &Path) -> Vec<PathBuf> {
-    let mut result = Vec::new();
-    let mut stack = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for entry in entries.flatten() {
-            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
-                && entry.file_name() != ".git"
-            {
-                stack.push(entry.path());
-            }
-        }
-    }
-    while let Some(dir) = stack.pop() {
-        let gi = dir.join(".gitignore");
-        if gi.exists() {
-            result.push(gi);
-        }
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false)
-                    && entry.file_name() != ".git"
-                {
-                    stack.push(entry.path());
-                }
-            }
-        }
-    }
-    result
+    let gi = root_builder.build().map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Failed to build root gitignore: {}", e),
+        )
+    })?;
+    Ok(Some(gi))
 }
 
 #[cfg(test)]
@@ -604,6 +607,17 @@ mod tests {
         std::fs::write(root.join("a/b/c/.gitignore"), "*.tmp\n").unwrap();
         let e = MatcherEngine::compile(&MatchSpec::new().with_gitignore(true), root).unwrap();
 
+        // Nested layers are not scanned up front; they load as the walk
+        // enters each directory.
+        assert_eq!(
+            e.select_file(&RelPath::from_relative("a/b/c/remove.tmp")),
+            Selection::Include
+        );
+        for dir in ["a", "a/b", "a/b/c"] {
+            e.load_nested_gitignore(&RelPath::from_relative(dir), &root.join(dir))
+                .unwrap();
+        }
+
         assert_eq!(
             e.select_file(&RelPath::from_relative("a/b/keep.tmp")),
             Selection::Include
@@ -611,6 +625,31 @@ mod tests {
         assert_eq!(
             e.select_file(&RelPath::from_relative("a/b/c/remove.tmp")),
             Selection::Exclude
+        );
+        assert_eq!(
+            e.select_file(&RelPath::from_relative("a/b/c/d/remove.tmp")),
+            Selection::Exclude
+        );
+        // A sibling sharing the name prefix is outside the scope.
+        assert_eq!(
+            e.select_file(&RelPath::from_relative("a/b/cc/keep.tmp")),
+            Selection::Include
+        );
+    }
+
+    #[test]
+    fn nested_gitignore_not_loaded_when_disabled() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/.gitignore"), "*.tmp\n").unwrap();
+        let e = MatcherEngine::compile(&MatchSpec::new().with_gitignore(false), root).unwrap();
+
+        e.load_nested_gitignore(&RelPath::from_relative("sub"), &root.join("sub"))
+            .unwrap();
+        assert_eq!(
+            e.select_file(&RelPath::from_relative("sub/x.tmp")),
+            Selection::Include
         );
     }
 }

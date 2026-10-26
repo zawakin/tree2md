@@ -116,7 +116,12 @@ pub fn build_tree_with_spec(
 
             // Directories reaching this point were not pruned by the walker's
             // filter (see `new_walker`), so only files still need a decision.
-            if !entry_metadata.is_dir() && matcher.select_file(&rel_path) != Selection::Include {
+            if entry_metadata.is_dir() {
+                // The walk is sequential and yields a directory before reading
+                // its contents, so loading its `.gitignore` here makes the
+                // layer visible to the filter for every child.
+                matcher.load_nested_gitignore(&rel_path, entry_path)?;
+            } else if matcher.select_file(&rel_path) != Selection::Include {
                 continue;
             }
 

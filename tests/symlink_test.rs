@@ -121,3 +121,48 @@ fn test_follow_links_short_flag() {
         output
     );
 }
+
+#[test]
+fn test_follow_links_applies_gitignore_inside_linked_dir() {
+    // A followed directory is treated like a real one: its own .gitignore
+    // applies to the entries shown beneath the link path.
+    let (_tmp, root) = FixtureBuilder::new()
+        .dir("scanned/.git")
+        .file("shared/.gitignore", "*.gen\n")
+        .file("shared/out.gen", "generated")
+        .file("shared/kept.txt", "kept")
+        .build();
+    let scanned = root.join("scanned");
+    symlink("../shared", scanned.join("link_dir")).expect("symlink dir");
+
+    let (output, _, success) = run_tree2md([p(&scanned), "--follow-links".into()]);
+    assert!(success);
+    assert!(output.contains("kept.txt"), "got:\n{}", output);
+    assert!(
+        !output.contains("out.gen"),
+        "link_dir/.gitignore should apply under the link path, got:\n{}",
+        output
+    );
+}
+
+#[test]
+fn test_follow_links_filters_link_and_target_consistently() {
+    // A link to a directory inside the scanned root shows the same files
+    // twice. Both views must be filtered by that directory's .gitignore.
+    let (_tmp, root) = FixtureBuilder::new()
+        .dir(".git")
+        .file("real/.gitignore", "*.gen\n")
+        .file("real/out.gen", "generated")
+        .file("real/kept.txt", "kept")
+        .build();
+    symlink("real", root.join("link")).expect("symlink dir");
+
+    let (output, _, success) = run_tree2md([p(&root), "--follow-links".into()]);
+    assert!(success);
+    assert_eq!(output.matches("kept.txt").count(), 2, "got:\n{}", output);
+    assert!(
+        !output.contains("out.gen"),
+        "out.gen should be hidden under both real/ and link/, got:\n{}",
+        output
+    );
+}
