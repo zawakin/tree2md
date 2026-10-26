@@ -173,9 +173,10 @@ impl Stats {
         if !self.file_types.is_empty() {
             output.push_str("\n**By type**:\n");
 
-            // Sort by count descending
-            let mut types: Vec<_> = self.file_types.iter().collect();
-            types.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+            // Sort by count descending, then by name so ties (and the top-8
+            // cut) don't depend on HashMap iteration order
+            let mut types: Vec<_> = self.file_types.values().collect();
+            types.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
 
             let chars = if use_unicode {
                 ProgressChars::unicode()
@@ -183,7 +184,7 @@ impl Stats {
                 ProgressChars::ascii()
             };
 
-            for (_file_type, stats) in types.iter().take(8) {
+            for stats in types.iter().take(8) {
                 let percentage = (stats.count as f32 / self.total_files as f32) * 100.0;
                 let bar = self.render_bar(percentage, 15, chars.clone());
 
