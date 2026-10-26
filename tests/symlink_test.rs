@@ -144,3 +144,25 @@ fn test_follow_links_applies_gitignore_inside_linked_dir() {
         output
     );
 }
+
+#[test]
+fn test_follow_links_filters_link_and_target_consistently() {
+    // A link to a directory inside the scanned root shows the same files
+    // twice. Both views must be filtered by that directory's .gitignore.
+    let (_tmp, root) = FixtureBuilder::new()
+        .dir(".git")
+        .file("real/.gitignore", "*.gen\n")
+        .file("real/out.gen", "generated")
+        .file("real/kept.txt", "kept")
+        .build();
+    symlink("real", root.join("link")).expect("symlink dir");
+
+    let (output, _, success) = run_tree2md([p(&root), "--follow-links".into()]);
+    assert!(success);
+    assert_eq!(output.matches("kept.txt").count(), 2, "got:\n{}", output);
+    assert!(
+        !output.contains("out.gen"),
+        "out.gen should be hidden under both real/ and link/, got:\n{}",
+        output
+    );
+}
