@@ -6,9 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-26
+
 ### Security
 - The safety filter now excludes secret files at any depth. Only a root-level `.env` / `.env.*` was excluded, so files such as `apps/web/.env` or `backend/.env.local` were listed and, with `-c`, printed in full into AI context. Also excluded by default now: common credential files — `.envrc`, `.npmrc`, `.pypirc`, `.netrc` / `_netrc`, `.git-credentials`, `.docker/config.json`, `.kube/config` / `kubeconfig`, `*.tfstate`, `.pgpass`, `.my.cnf`, `*.ppk`, `.gnupg/` — and PHP / web-hosting secrets: Composer `auth.json`, `wp-config.php`, `.htpasswd`. `.DS_Store`, `Thumbs.db` and `desktop.ini` are now excluded at any depth too. Use `-I` to include a specific file, or `--unsafe` to disable the filter. If you have run `tree2md -c` on a tree with such files and shared the output, consider rotating the secrets in them.
-- Hardened the release pipeline against supply-chain attacks. All GitHub Actions are pinned to commit SHAs, workflow tokens are read-only except where a job needs to write, release builds no longer use a build cache, builds and `cargo publish` use the committed `Cargo.lock` (`--locked`), and the crates.io token is no longer passed on the command line. Each release archive now has a signed build provenance attestation: verify downloads with `gh attestation verify <archive> --repo zawakin/tree2md`.
+- Release archives come with signed build provenance attestations; verify a download with `gh attestation verify <archive> --repo zawakin/tree2md`.
 
 ### Fixed
 - Large trees with many directories no longer take quadratic time to assemble. Building the tree scanned every collected node once per directory, so a repository with 16,000 directories / 80,000 files took ~74 s; it now takes ~4 s (I/O-bound). Generic includes such as `-I '*.rs'` were hit too, because every directory is collected before empty ones are dropped: 10 matching files in that same tree took ~9.5 s and now take ~0.7 s.
@@ -395,7 +397,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hidden file support
 - Multi-language support (English/Japanese)
 
-[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/zawakin/tree2md/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/zawakin/tree2md/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/zawakin/tree2md/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/zawakin/tree2md/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/zawakin/tree2md/compare/v0.10.1...v0.10.2
