@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Large trees with many directories no longer take quadratic time to assemble. Building the tree scanned every collected node once per directory, so a repository with 16,000 directories / 80,000 files took ~74 s; it now takes ~4 s (I/O-bound). Generic includes such as `-I '*.rs'` were hit too, because every directory is collected before empty ones are dropped: 10 matching files in that same tree took ~9.5 s and now take ~0.7 s.
+
 ## [0.12.0] - 2026-08-25
 
 ### Added

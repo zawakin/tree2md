@@ -187,7 +187,7 @@ pub fn build_tree_with_spec(
         }
 
         // Build the tree structure from the flat map
-        build_tree_from_map(&mut root_node, &nodes_map, path_buf)?;
+        build_tree_from_map(&mut root_node, nodes_map, path_buf);
 
         // Remove directories left empty after pruning (include filtering,
         // nested-repo detection, etc.). Not run unconditionally because
@@ -200,46 +200,44 @@ pub fn build_tree_with_spec(
     Ok(root_node)
 }
 
-fn build_tree_from_map(
-    parent: &mut Node,
-    nodes_map: &HashMap<PathBuf, Node>,
-    base_path: &Path,
-) -> io::Result<()> {
-    let mut direct_children: Vec<PathBuf> = Vec::new();
+type ChildrenIndex = HashMap<PathBuf, Vec<(PathBuf, Node)>>;
 
-    // Find direct children of the parent
-    for path in nodes_map.keys() {
+fn build_tree_from_map(parent: &mut Node, nodes_map: HashMap<PathBuf, Node>, base_path: &Path) {
+    // Group nodes by parent path once, so each directory's children are a
+    // single lookup instead of a scan over every collected node (which made
+    // assembly O(dirs × nodes)).
+    let mut children_index: ChildrenIndex = HashMap::new();
+    for (path, node) in nodes_map {
         if let Some(parent_path) = path.parent() {
-            if parent_path == base_path {
-                direct_children.push(path.clone());
-            }
+            children_index
+                .entry(parent_path.to_path_buf())
+                .or_default()
+                .push((path, node));
         }
     }
 
-    // Sort children: directories first, then files, alphabetically within each group
-    direct_children.sort_by(|a, b| {
-        let a_node = nodes_map.get(a).unwrap();
-        let b_node = nodes_map.get(b).unwrap();
+    attach_children(parent, &mut children_index, base_path);
+}
 
-        match (a_node.is_dir, b_node.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a_node.name.cmp(&b_node.name),
-        }
+fn attach_children(parent: &mut Node, children_index: &mut ChildrenIndex, base_path: &Path) {
+    let Some(mut direct_children) = children_index.remove(base_path) else {
+        return;
+    };
+
+    // Sort children: directories first, then files, alphabetically within each group
+    direct_children.sort_by(|(_, a), (_, b)| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
     });
 
     // Add children to parent and recursively build their subtrees
-    for child_path in direct_children {
-        if let Some(child_node) = nodes_map.get(&child_path) {
-            let mut child = child_node.clone();
-            if child.is_dir {
-                build_tree_from_map(&mut child, nodes_map, &child_path)?;
-            }
-            parent.children.push(child);
+    for (child_path, mut child) in direct_children {
+        if child.is_dir {
+            attach_children(&mut child, children_index, &child_path);
         }
+        parent.children.push(child);
     }
-
-    Ok(())
 }
 
 /// Remove directories that have no children after filtering.
