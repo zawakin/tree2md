@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::Arc;
 
 /// Build tree using WalkBuilder for unified gitignore support with MatcherEngine
 pub fn build_tree(
@@ -47,24 +49,33 @@ pub fn build_tree_with_spec(
 
     if metadata.is_dir() {
         // Compile the matcher engine
-        let matcher = MatcherEngine::compile(spec, root_path)?;
+        let matcher = Arc::new(MatcherEngine::compile(spec, root_path)?);
 
-        // Use WalkBuilder for recursive directory traversal
-        let mut walker = WalkBuilder::new(path);
-        walker
-            .hidden(false) // Don't exclude hidden files by default (will be handled by patterns)
-            .git_ignore(false) // We handle gitignore in MatcherEngine
-            .git_global(false)
-            .git_exclude(false)
-            .parents(false)
-            .ignore(false)
-            .follow_links(args.follow_links) // Opt-in via --follow-links; cycles are detected by `ignore`
-            .max_depth(args.level); // Use level directly
+        // Root that RelPaths for matching are taken against.
+        //
+        // When following links we strip the *logical* walk root (`path_buf`)
+        // rather than the canonical `root_path`. `from_root_rel` falls back
+        // to canonicalizing both sides, which resolves a symlink to its
+        // target — and a target outside the scanned root would then fail the
+        // prefix check and be dropped. Stripping the logical path keeps the
+        // entry under its link path, so out-of-root targets are surfaced.
+        let match_root = if args.follow_links {
+            path_buf.to_path_buf()
+        } else {
+            root_path.to_path_buf()
+        };
+
+        let nested_repo_pruned = Arc::new(AtomicBool::new(false));
+        let walker = new_walker(
+            path_buf,
+            args,
+            Arc::clone(&matcher),
+            match_root.clone(),
+            Arc::clone(&nested_repo_pruned),
+        );
 
         // Build a map of paths to nodes for efficient tree construction
         let mut nodes_map: HashMap<PathBuf, Node> = HashMap::new();
-        let mut pruned_dirs: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
-        let mut has_nested_repo_pruning = false;
 
         for entry in walker.build() {
             let entry = match entry {
@@ -92,68 +103,21 @@ pub fn build_tree_with_spec(
                 continue;
             }
 
-            // Check if this path is under a pruned directory
-            let is_under_pruned = pruned_dirs
-                .iter()
-                .any(|pruned| entry_path.starts_with(pruned));
-
-            if is_under_pruned {
-                continue;
-            }
-
             let entry_metadata = match entry.metadata() {
                 Ok(m) => m,
                 Err(_) => continue,
             };
 
-            // Prune nested git repositories / worktrees / submodules.
-            // If a subdirectory contains a `.git` entry (file or directory),
-            // it represents a separate repository boundary and should not be
-            // traversed. This prevents worktrees, submodules, and nested repos
-            // from leaking into the output.
-            if entry_metadata.is_dir() && entry_path.join(".git").exists() {
-                pruned_dirs.insert(entry_path.to_path_buf());
-                has_nested_repo_pruning = true;
-                continue;
-            }
-
             // Create RelPath for matching.
-            //
-            // When following links we strip the *logical* walk root (`path_buf`)
-            // rather than the canonical `root_path`. `from_root_rel` falls back
-            // to canonicalizing both sides, which resolves a symlink to its
-            // target — and a target outside the scanned root would then fail the
-            // prefix check and be dropped. Stripping the logical path keeps the
-            // entry under its link path, so out-of-root targets are surfaced.
-            let match_root = if args.follow_links {
-                path_buf
-            } else {
-                root_path
-            };
-            let rel_path = match RelPath::from_root_rel(entry_path, match_root) {
+            let rel_path = match RelPath::from_root_rel(entry_path, &match_root) {
                 Some(rp) => rp,
                 None => continue,
             };
 
-            // Apply matcher engine selection
-            let selection = if entry_metadata.is_dir() {
-                matcher.select_dir(&rel_path)
-            } else {
-                matcher.select_file(&rel_path)
-            };
-
-            match selection {
-                Selection::PruneDir => {
-                    // Mark this directory as pruned so we skip its children
-                    pruned_dirs.insert(entry_path.to_path_buf());
-                    continue;
-                }
-                Selection::Exclude => {
-                    continue;
-                }
-                Selection::Include => {
-                    // Include this file/dir in the tree
-                }
+            // Directories reaching this point were not pruned by the walker's
+            // filter (see `new_walker`), so only files still need a decision.
+            if !entry_metadata.is_dir() && matcher.select_file(&rel_path) != Selection::Include {
+                continue;
             }
 
             let entry_name = entry_path
@@ -192,12 +156,61 @@ pub fn build_tree_with_spec(
         // Remove directories left empty after pruning (include filtering,
         // nested-repo detection, etc.). Not run unconditionally because
         // empty dirs at --level boundary should remain visible.
-        if spec.has_includes() || has_nested_repo_pruning {
+        if spec.has_includes() || nested_repo_pruned.load(AtomicOrdering::Relaxed) {
             remove_empty_directories(&mut root_node);
         }
     }
 
     Ok(root_node)
+}
+
+/// Configure the directory walker.
+///
+/// Directory pruning runs inside the walker via `filter_entry`: a rejected
+/// directory is neither yielded nor read, so excluded subtrees (`target/`,
+/// `node_modules/`, `.git/`, anything outside `-I`, ...) cost nothing. Files
+/// always pass the filter and are decided by the caller with `select_file`.
+fn new_walker(
+    path: &Path,
+    args: &Args,
+    matcher: Arc<MatcherEngine>,
+    match_root: PathBuf,
+    nested_repo_pruned: Arc<AtomicBool>,
+) -> WalkBuilder {
+    let mut walker = WalkBuilder::new(path);
+    walker
+        .hidden(false) // Don't exclude hidden files by default (will be handled by patterns)
+        .git_ignore(false) // We handle gitignore in MatcherEngine
+        .git_global(false)
+        .git_exclude(false)
+        .parents(false)
+        .ignore(false)
+        .follow_links(args.follow_links) // Opt-in via --follow-links; cycles are detected by `ignore`
+        .max_depth(args.level) // Use level directly
+        .filter_entry(move |entry| {
+            // The walk root (depth 0) never reaches this filter.
+            let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
+            // Non-UTF8 paths pass through so the caller can warn and skip them.
+            if !is_dir || entry.path().to_str().is_none() {
+                return true;
+            }
+
+            // Prune nested git repositories / worktrees / submodules.
+            // If a subdirectory contains a `.git` entry (file or directory),
+            // it represents a separate repository boundary and should not be
+            // traversed. This prevents worktrees, submodules, and nested repos
+            // from leaking into the output.
+            if entry.path().join(".git").exists() {
+                nested_repo_pruned.store(true, AtomicOrdering::Relaxed);
+                return false;
+            }
+
+            match RelPath::from_root_rel(entry.path(), &match_root) {
+                Some(rel_path) => matcher.select_dir(&rel_path) != Selection::PruneDir,
+                None => true,
+            }
+        });
+    walker
 }
 
 type ChildrenIndex = HashMap<PathBuf, Vec<(PathBuf, Node)>>;
@@ -307,6 +320,52 @@ mod tests {
 
         // target directory should be pruned (no matching files)
         assert!(tree.children.iter().find(|n| n.name == "target").is_none());
+    }
+
+    #[test]
+    fn test_walker_does_not_descend_into_pruned_dirs() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        // Pruned by -I (no include relates to it)
+        fs::create_dir_all(root.join("vendor/lib")).unwrap();
+        fs::write(root.join("vendor/lib/a.txt"), "a").unwrap();
+        // Pruned as a nested repository
+        fs::create_dir_all(root.join("nested/.git")).unwrap();
+        fs::write(root.join("nested/b.txt"), "b").unwrap();
+        // .git is never traversed
+        fs::create_dir_all(root.join(".git/objects")).unwrap();
+        fs::write(root.join(".git/objects/obj"), "").unwrap();
+
+        let args = Args::parse_from(&["tree2md", root.to_str().unwrap()]);
+        let spec = MatchSpec::new().with_include_glob(vec!["src/**".to_string()]);
+        let matcher = Arc::new(MatcherEngine::compile(&spec, root).unwrap());
+        let nested_repo_pruned = Arc::new(AtomicBool::new(false));
+
+        let walked: Vec<PathBuf> = new_walker(
+            root,
+            &args,
+            matcher,
+            root.to_path_buf(),
+            Arc::clone(&nested_repo_pruned),
+        )
+        .build()
+        .filter_map(Result::ok)
+        .map(|e| e.path().strip_prefix(root).unwrap().to_path_buf())
+        .collect();
+
+        assert!(walked.contains(&PathBuf::from("src/main.rs")));
+        for pruned in ["vendor", "nested", ".git"] {
+            assert!(
+                !walked.iter().any(|p| p.starts_with(pruned)),
+                "walker entered {}: {:?}",
+                pruned,
+                walked
+            );
+        }
+        assert!(nested_repo_pruned.load(AtomicOrdering::Relaxed));
     }
 
     #[test]
