@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Large trees with many directories no longer take quadratic time to assemble. Building the tree scanned every collected node once per directory, so a repository with 16,000 directories / 80,000 files took ~74 s; it now takes ~4 s (I/O-bound). Generic includes such as `-I '*.rs'` were hit too, because every directory is collected before empty ones are dropped: 10 matching files in that same tree took ~9.5 s and now take ~0.7 s.
 - Excluded directories are no longer read. Pruning decisions (`-I`/`-X`, gitignore, safety preset, nested repositories, `.git`) only skipped the entries beneath a directory while the walker still descended into it, so `target/`, `node_modules/` and `.git/` were read in full on every run. Pruning now happens inside the walker: in this repository `tree2md -I 'src/**' --use-gitignore never .` went from 0.10 s to 0.009 s (same as `tree2md src`), and the time no longer grows with the size of excluded directories.
+- Nested `.gitignore` files are no longer collected by a separate scan of the whole tree. That pre-scan ran whenever gitignore was respected (the default inside a repository) and ignored `-L`, `-I`, gitignore and the safety preset, so even `tree2md -L 1` read every directory. Each directory's `.gitignore` is now loaded when the walk enters it; in this repository `tree2md -L 1 .` went from 0.084 s to 0.008 s.
+
+### Changed
+- With `-l` / `--follow-links`, a `.gitignore` inside a followed directory now applies to the entries shown beneath the link path, the same as for a real directory. Previously only real directories' `.gitignore` files were picked up.
 
 ## [0.12.0] - 2026-08-25
 

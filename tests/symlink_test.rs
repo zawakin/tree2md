@@ -121,3 +121,26 @@ fn test_follow_links_short_flag() {
         output
     );
 }
+
+#[test]
+fn test_follow_links_applies_gitignore_inside_linked_dir() {
+    // A followed directory is treated like a real one: its own .gitignore
+    // applies to the entries shown beneath the link path.
+    let (_tmp, root) = FixtureBuilder::new()
+        .dir("scanned/.git")
+        .file("shared/.gitignore", "*.gen\n")
+        .file("shared/out.gen", "generated")
+        .file("shared/kept.txt", "kept")
+        .build();
+    let scanned = root.join("scanned");
+    symlink("../shared", scanned.join("link_dir")).expect("symlink dir");
+
+    let (output, _, success) = run_tree2md([p(&scanned), "--follow-links".into()]);
+    assert!(success);
+    assert!(output.contains("kept.txt"), "got:\n{}", output);
+    assert!(
+        !output.contains("out.gen"),
+        "link_dir/.gitignore should apply under the link path, got:\n{}",
+        output
+    );
+}
